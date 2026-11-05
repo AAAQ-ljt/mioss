@@ -96,6 +96,8 @@ def test_compose_prompt_skips_unusable_entry(tmp_path):
     )
     assert "cinematic anime illustration" in result["positive"]
     assert "forest, fog, dawn" in result["positive"]
+    assert result["positive_count"] >= 3
+    assert result["negative_count"] >= 2
     assert "1girl, silver hair" in result["positive"]
     assert "curvy" in result["negative"]
     assert "watermark" in result["negative"]

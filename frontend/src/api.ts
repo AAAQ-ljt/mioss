@@ -1,3 +1,13 @@
+export type Codex = {
+  id: string;
+  title: string;
+  author: string | null;
+  version: string | null;
+  type: string | null;
+  nsfw: number;
+  entry_count: number;
+};
+
 export type RefDetail = {
   id: string;
   title: string;

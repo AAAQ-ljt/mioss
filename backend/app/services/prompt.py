@@ -95,8 +95,12 @@ def compose_prompt(
         negative_parts.append(entry["tags_negative"] or "")
         negative_parts.append(entry["negative_raw"] or "")
 
+    positive = normalize_tag_list(", ".join(positive_parts))
+    negative = normalize_tag_list(", ".join(negative_parts))
     return {
-        "positive": normalize_tag_list(", ".join(positive_parts)),
-        "negative": normalize_tag_list(", ".join(negative_parts)),
+        "positive": positive,
+        "negative": negative,
+        "positive_count": len(positive.split(", ")) if positive else 0,
+        "negative_count": len(negative.split(", ")) if negative else 0,
         "dropped": dropped,
     }

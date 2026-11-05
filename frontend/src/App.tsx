@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api, type CodexEntry, type Job, type Page, type Project, type StylePreset } from "./api";
+import { api, type Codex, type CodexEntry, type Job, type Page, type Project, type StylePreset } from "./api";
 
 type Health = {
   ok: boolean;
@@ -12,6 +12,8 @@ type Health = {
 type ComposeResult = {
   positive: string;
   negative: string;
+  positive_count?: number;
+  negative_count?: number;
   dropped: { id: string; reason: string }[];
 };
 
@@ -26,6 +28,7 @@ export default function App() {
   const [characterAnchor, setCharacterAnchor] = useState("1girl, silver hair, amber eyes, apprentice mage, cloak");
   const [draft, setDraft] = useState<Page | null>(null);
   const [query, setQuery] = useState("森林");
+  const [codexFilter, setCodexFilter] = useState("");
   const [includeNsfw, setIncludeNsfw] = useState(false);
   const [gallerySort, setGallerySort] = useState<"order" | "time">("order");
   const [jobId, setJobId] = useState<string | null>(null);
@@ -58,16 +61,21 @@ export default function App() {
     enabled: !!selectedProjectId,
   });
 
+  const codexesQuery = useQuery({
+    queryKey: ["codexes"],
+    queryFn: () => api<Codex[]>("/api/codexes?include_nsfw=true"),
+  });
+
   const stylePresetsQuery = useQuery({
     queryKey: ["style-presets"],
     queryFn: () => api<StylePreset[]>("/api/style-presets"),
   });
 
   const codexQuery = useQuery({
-    queryKey: ["codex", query, includeNsfw],
+    queryKey: ["codex", query, codexFilter, includeNsfw],
     queryFn: () =>
       api<CodexEntry[]>(
-        `/api/codex/search?q=${encodeURIComponent(query)}&include_nsfw=${includeNsfw}&limit=20`,
+        `/api/codex/search?q=${encodeURIComponent(query)}&include_nsfw=${includeNsfw}&limit=20${codexFilter ? `&codex_id=${encodeURIComponent(codexFilter)}` : ""}`,
       ),
     enabled: query.trim().length > 0,
   });
@@ -571,12 +579,20 @@ export default function App() {
 
               <label className="block">
                 <span className="mb-1 block text-sm opacity-70">Seed</span>
-                <input
-                  className="mono w-40 bg-black/20 px-2 py-1 outline-none"
-                  type="number"
-                  value={draft.seed ?? ""}
-                  onChange={(event) => setDraft({ ...draft, seed: event.target.value ? Number(event.target.value) : null })}
-                />
+                <div className="flex gap-2">
+                  <input
+                    className="mono w-40 bg-black/20 px-2 py-1 outline-none"
+                    type="number"
+                    value={draft.seed ?? ""}
+                    onChange={(event) => setDraft({ ...draft, seed: event.target.value ? Number(event.target.value) : null })}
+                  />
+                  <button
+                    className="border border-white/20 px-3 py-1 text-sm"
+                    onClick={() => setDraft({ ...draft, seed: Math.floor(Math.random() * 1_000_000_000_000_000) })}
+                  >
+                    随机
+                  </button>
+                </div>
               </label>
 
               <div className="flex flex-wrap gap-2">
@@ -596,7 +612,7 @@ export default function App() {
 
               {lastCompose && (
                 <div className="mono text-xs opacity-70">
-                  过滤/跳过 {lastCompose.dropped.length} 项：{lastCompose.dropped.map((item) => `${item.id}:${item.reason}`).join(", ")}
+                  正向 {lastCompose.positive_count ?? 0} 个 tag，负向 {lastCompose.negative_count ?? 0} 个 tag；过滤/跳过 {lastCompose.dropped.length} 项：{lastCompose.dropped.map((item) => `${item.id}:${item.reason}`).join(", ")}
                 </div>
               )}
 
@@ -618,6 +634,19 @@ export default function App() {
         </section>
 
         <section className="panel overflow-hidden p-3">
+          <select
+            className="mb-2 w-full bg-black/20 px-2 py-1 text-sm outline-none"
+            value={codexFilter}
+            onChange={(event) => setCodexFilter(event.target.value)}
+          >
+            <option value="">全部法典</option>
+            {codexesQuery.data?.map((codex) => (
+              <option key={codex.id} value={codex.id}>
+                {codex.title} ({codex.entry_count})
+              </option>
+            ))}
+          </select>
+
           <div className="mb-3 flex gap-2">
             <input
               className="min-w-0 flex-1 bg-transparent px-2 py-1 outline-none placeholder:opacity-40"

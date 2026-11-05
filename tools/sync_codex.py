@@ -164,6 +164,7 @@ def import_entries(conn: sqlite3.Connection, codex_meta: dict[str, Any], data: d
             if item["reason"] == "artist":
                 tag_rows.append((entry.get("id"), item["tag"], "artist"))
 
+    existing_ids = {row["id"] for row in conn.execute("SELECT id FROM entry WHERE codex_id = ?", (codex_id,)).fetchall()}
     conn.executemany(
         """
         INSERT OR REPLACE INTO entry(
@@ -174,6 +175,10 @@ def import_entries(conn: sqlite3.Connection, codex_meta: dict[str, Any], data: d
         """,
         entry_rows,
     )
+    removed_ids = existing_ids - {row[0] for row in entry_rows}
+    if removed_ids:
+        conn.executemany("DELETE FROM entry_tag WHERE entry_id = ?", [(entry_id,) for entry_id in removed_ids])
+        conn.executemany("DELETE FROM entry WHERE id = ?", [(entry_id,) for entry_id in removed_ids])
     conn.execute("DELETE FROM entry_tag WHERE entry_id IN (SELECT id FROM entry WHERE codex_id = ?)", (codex_id,))
     conn.executemany("INSERT OR REPLACE INTO entry_tag(entry_id, tag, kind) VALUES (?, ?, ?)", tag_rows)
     conn.commit()
