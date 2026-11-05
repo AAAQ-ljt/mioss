@@ -1,19 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api, type CodexEntry, type Page, type Project, type StylePreset } from "./api";
+import { api, type CodexEntry, type Job, type Page, type Project, type StylePreset } from "./api";
 
 type Health = {
   ok: boolean;
   release: string | null;
   entries: { total: number; usable: number };
   comfy: { ok: boolean; error?: string };
-};
-
-type Job = {
-  id: string;
-  status: string;
-  output_path: string | null;
-  error: string | null;
 };
 
 type ComposeResult = {
@@ -29,6 +22,8 @@ export default function App() {
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [storyDraft, setStoryDraft] = useState("");
   const [stylePresetId, setStylePresetId] = useState("manga-ink");
+  const [characterName, setCharacterName] = useState("露娜");
+  const [characterAnchor, setCharacterAnchor] = useState("1girl, silver hair, amber eyes, apprentice mage, cloak");
   const [draft, setDraft] = useState<Page | null>(null);
   const [query, setQuery] = useState("森林");
   const [includeNsfw, setIncludeNsfw] = useState(false);
@@ -57,6 +52,12 @@ export default function App() {
     },
   });
 
+  const charactersQuery = useQuery({
+    queryKey: ["characters", selectedProjectId],
+    queryFn: () => api<{ id: string; name: string; anchor_tags: string; notes: string }[]>(`/api/projects/${selectedProjectId}/characters`),
+    enabled: !!selectedProjectId,
+  });
+
   const stylePresetsQuery = useQuery({
     queryKey: ["style-presets"],
     queryFn: () => api<StylePreset[]>("/api/style-presets"),
@@ -69,6 +70,12 @@ export default function App() {
         `/api/codex/search?q=${encodeURIComponent(query)}&include_nsfw=${includeNsfw}&limit=20`,
       ),
     enabled: query.trim().length > 0,
+  });
+
+  const jobsQuery = useQuery({
+    queryKey: ["jobs"],
+    queryFn: () => api<Job[]>("/api/jobs?limit=20"),
+    refetchInterval: 3000,
   });
 
   const jobQuery = useQuery({
@@ -125,6 +132,15 @@ export default function App() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["project", selectedProjectId] }),
   });
 
+  const upsertCharacter = useMutation({
+    mutationFn: () =>
+      api<{ id: string; name: string }>(`/api/projects/${selectedProjectId}/characters`, {
+        method: "POST",
+        body: JSON.stringify({ name: characterName, anchor_tags: characterAnchor }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["characters", selectedProjectId] }),
+  });
+
   const addPage = useMutation({
     mutationFn: async () => {
       return api<Page>(`/api/projects/${selectedProjectId}/pages`, {
@@ -165,6 +181,7 @@ export default function App() {
         method: "POST",
         body: JSON.stringify({
           entry_ids: draft.refs,
+          character_ids: charactersQuery.data?.map((item) => item.id) || [],
           page_text: `${draft.summary} ${draft.layout_note}`.trim(),
           save: true,
         }),
@@ -174,6 +191,24 @@ export default function App() {
       return result;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["project", selectedProjectId] }),
+  });
+
+  const reorderPages = useMutation({
+    mutationFn: async (pageIds: string[]) => {
+      return api<{ pages: Page[] }>(`/api/projects/${selectedProjectId}/reorder`, {
+        method: "POST",
+        body: JSON.stringify({ page_ids: pageIds }),
+      });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["project", selectedProjectId] }),
+  });
+
+  const deletePage = useMutation({
+    mutationFn: async (pageId: string) => api<{ deleted: string }>(`/api/pages/${pageId}`, { method: "DELETE" }),
+    onSuccess: (_result, pageId) => {
+      if (selectedPageId === pageId) setSelectedPageId(null);
+      queryClient.invalidateQueries({ queryKey: ["project", selectedProjectId] });
+    },
   });
 
   const generate = useMutation({
@@ -188,6 +223,30 @@ export default function App() {
       return result;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["project", selectedProjectId] }),
+  });
+
+  const deleteProject = useMutation({
+    mutationFn: async () => {
+      if (!window.confirm("确定删除当前项目及其页、角色和任务记录？")) return;
+      return api<{ deleted: string }>(`/api/projects/${selectedProjectId}`, { method: "DELETE" });
+    },
+    onSuccess: () => {
+      setSelectedProjectId(null);
+      setSelectedPageId(null);
+      setDraft(null);
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+    },
+  });
+
+  const duplicatePage = useMutation({
+    mutationFn: async () => {
+      if (!draft) throw new Error("no page selected");
+      return api<Page>(`/api/pages/${draft.id}/duplicate`, { method: "POST" });
+    },
+    onSuccess: (page) => {
+      setSelectedPageId(page.id);
+      queryClient.invalidateQueries({ queryKey: ["project", selectedProjectId] });
+    },
   });
 
   const generateAll = useMutation({
@@ -267,6 +326,36 @@ export default function App() {
             应用风格
           </button>
 
+          <div className="mb-3 border-t border-white/10 pt-3">
+            <div className="mb-2 text-sm opacity-70">角色圣经</div>
+            <div className="mb-2 max-h-24 overflow-auto text-xs">
+              {charactersQuery.data?.map((character) => (
+                <div key={character.id} className="mb-1 truncate border-b border-white/10 py-1">
+                  <span className="font-medium">{character.name}</span>
+                  <span className="mono ml-2 opacity-60">{character.anchor_tags}</span>
+                </div>
+              ))}
+              {!charactersQuery.data?.length && <div className="opacity-40">暂无角色</div>}
+            </div>
+            <input
+              className="mb-1 w-full bg-black/20 px-2 py-1 text-sm outline-none"
+              value={characterName}
+              onChange={(event) => setCharacterName(event.target.value)}
+              placeholder="角色名"
+              disabled={!selectedProjectId}
+            />
+            <textarea
+              className="mono mb-2 h-16 w-full resize-none bg-black/20 p-2 text-xs outline-none"
+              value={characterAnchor}
+              onChange={(event) => setCharacterAnchor(event.target.value)}
+              placeholder="角色锚点 tag"
+              disabled={!selectedProjectId}
+            />
+            <button className="border border-white/20 px-3 py-1 text-sm disabled:opacity-40" onClick={() => upsertCharacter.mutate()} disabled={!selectedProjectId}>
+              保存角色
+            </button>
+          </div>
+
           <textarea
             className="serif mb-3 h-40 w-full resize-none bg-black/20 p-2 outline-none"
             value={storyDraft}
@@ -284,18 +373,50 @@ export default function App() {
             <button className="border border-[#e4572e] px-3 py-1 text-[#e4572e] disabled:opacity-40" onClick={() => generateAll.mutate()} disabled={!selectedProjectId}>
               批量生成
             </button>
+            <button className="border border-white/20 px-3 py-1 text-red-300 disabled:opacity-40" onClick={() => deleteProject.mutate()} disabled={!selectedProjectId}>
+              删除项目
+            </button>
           </div>
 
           <div className="max-h-56 overflow-auto">
-            {pages.map((page) => (
-              <button
-                key={page.id}
-                className={`mb-1 flex w-full items-center justify-between px-2 py-1 text-left ${selectedPageId === page.id ? "bg-white/10" : "hover:bg-white/5"}`}
-                onClick={() => setSelectedPageId(page.id)}
-              >
-                <span>第 {page.order_no} 页</span>
-                <span className="mono text-xs opacity-60">{page.status}</span>
-              </button>
+            {pages.map((page, index) => (
+              <div key={page.id} className={`mb-1 flex items-center justify-between px-2 py-1 ${selectedPageId === page.id ? "bg-white/10" : "hover:bg-white/5"}`}>
+                <button className="min-w-0 flex-1 truncate text-left" onClick={() => setSelectedPageId(page.id)}>
+                  第 {page.order_no} 页
+                </button>
+                <div className="flex items-center gap-1">
+                  <span className="mono text-xs opacity-60">{page.status}</span>
+                  <button
+                    className="border border-white/20 px-1 text-xs disabled:opacity-30"
+                    disabled={index === 0 || reorderPages.isPending}
+                    onClick={() => {
+                      const ids = pages.map((item) => item.id);
+                      [ids[index - 1], ids[index]] = [ids[index], ids[index - 1]];
+                      reorderPages.mutate(ids);
+                    }}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    className="border border-white/20 px-1 text-xs disabled:opacity-30"
+                    disabled={index === pages.length - 1 || reorderPages.isPending}
+                    onClick={() => {
+                      const ids = pages.map((item) => item.id);
+                      [ids[index + 1], ids[index]] = [ids[index], ids[index + 1]];
+                      reorderPages.mutate(ids);
+                    }}
+                  >
+                    ↓
+                  </button>
+                  <button
+                    className="border border-white/20 px-1 text-xs disabled:opacity-30"
+                    disabled={pages.length <= 1 || deletePage.isPending}
+                    onClick={() => deletePage.mutate(page.id)}
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
 
@@ -439,6 +560,9 @@ export default function App() {
                 <button className="border border-white/20 px-3 py-1" onClick={() => compose.mutate()}>
                   编译提示词
                 </button>
+                <button className="border border-white/20 px-3 py-1" onClick={() => duplicatePage.mutate()}>
+                  复制本页
+                </button>
                 <button className="border border-[#e4572e] px-3 py-1 text-[#e4572e]" onClick={() => generate.mutate()}>
                   生成本页
                 </button>
@@ -485,7 +609,7 @@ export default function App() {
             {codexQuery.data?.map((entry) => (
               <div key={entry.id} className="panel mb-2 p-2">
                 <div className="flex gap-2">
-                  {entry.image_url && <img src={entry.image_url} alt={entry.title} className="h-24 w-16 object-cover" />}
+                  {entry.image_url && <img src={`/api/codex/entries/${entry.id}/thumbnail`} alt={entry.title} className="h-24 w-16 object-cover" />}
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium">{entry.title}</div>
                     <div className="mono text-xs opacity-60">{entry.id}</div>
@@ -511,6 +635,26 @@ export default function App() {
           </div>
         </section>
       </main>
+
+      <footer className="panel mx-3 mb-3 p-3">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-sm opacity-70">任务队列</span>
+          <span className="mono text-xs opacity-50">{jobsQuery.data?.length || 0} 条</span>
+        </div>
+        <div className="mono max-h-36 overflow-auto text-xs">
+          {jobsQuery.data?.map((job) => (
+            <div key={job.id} className="mb-1 flex items-center justify-between border-b border-white/10 py-1">
+              <span>
+                {job.project_id.slice(0, 6)} / 第 {job.order_no} 页 / seed {job.seed ?? "-"}
+              </span>
+              <span className={job.status === "succeeded" ? "text-emerald-300" : job.status === "failed" ? "accent" : "opacity-70"}>
+                {job.status}
+              </span>
+            </div>
+          ))}
+          {!jobsQuery.data?.length && <div className="opacity-40">暂无任务</div>}
+        </div>
+      </footer>
     </div>
   );
 }

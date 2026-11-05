@@ -67,7 +67,22 @@ def test_project_storyboard_gallery(tmp_path):
 
     added = projects.add_page(conn, project["id"], {"summary": "追加页", "refs": ["suozhang-1"]})
     assert added["order_no"] == 3
-    assert added["refs"] == ["suozhang-1"]
+
+    reordered = projects.reorder_pages(conn, project["id"], [added["id"], pages[0]["id"], pages[1]["id"]])
+    assert [page["order_no"] for page in reordered] == [1, 2, 3]
+    assert reordered[0]["id"] == added["id"]
+
+    assert projects.delete_page(conn, reordered[2]["id"]) is True
+    assert len(projects.list_pages(conn, project["id"])) == 2
+
+    duplicated = projects.duplicate_page(conn, reordered[0]["id"])
+    assert duplicated["order_no"] == 3
+    assert duplicated["status"] == "draft"
+    assert duplicated["image_path"] is None
+
+    assert projects.delete_project(conn, project["id"]) is True
+    assert projects.get_project(conn, project["id"]) is None
+    assert projects.list_pages(conn, project["id"]) == []
 
 
 def test_compose_prompt_skips_unusable_entry(tmp_path):

@@ -101,6 +101,25 @@ class ComfyClient:
         except Exception as error:
             return {"ok": False, "error": str(error)}
 
+    def object_info(self) -> dict[str, Any]:
+        response = self.client.get(f"{self.base_url}/object_info")
+        response.raise_for_status()
+        return response.json()
+
+    def validate_profile(self, profile: dict[str, Any]) -> None:
+        info = self.object_info()
+        checks = [
+            ("UNETLoader", "unet_name", profile.get("unet_name")),
+            ("CLIPLoader", "clip_name", profile.get("clip_name")),
+            ("VAELoader", "vae_name", profile.get("vae_name")),
+        ]
+        for node_name, input_name, value in checks:
+            if not value:
+                continue
+            options = info.get(node_name, {}).get("input", {}).get("required", {}).get(input_name, [[]])[0]
+            if value not in options:
+                raise ValueError(f"模型不存在或不在 {node_name}.{input_name} 可选列表中: {value}")
+
     def queue(self, graph: dict[str, Any]) -> dict[str, Any]:
         response = self.client.post(
             f"{self.base_url}/prompt",

@@ -5,12 +5,13 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 import sqlite3
 
 from .config import ensure_dirs, FRONTEND_DIST, PROJECTS_DIR
 from .db import connect, migrate
-from .services import codex, comfy, jobs, projects, prompt
+from .services import codex, comfy, jobs, projects, prompt, thumbs
 
 
 @asynccontextmanager
@@ -99,6 +100,18 @@ def list_style_presets(conn: sqlite3.Connection = Depends(get_conn)):
     return projects.list_style_presets(conn)
 
 
+@app.get("/api/codex/entries/{entry_id}/thumbnail")
+def entry_thumbnail(entry_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    entry, path = thumbs.ensure_thumbnail(conn, entry_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="entry not found")
+    if path:
+        return FileResponse(path)
+    if entry.get("image_url"):
+        return RedirectResponse(entry["image_url"])
+    raise HTTPException(status_code=404, detail="entry image not found")
+
+
 @app.get("/api/projects")
 def list_projects(conn: sqlite3.Connection = Depends(get_conn)):
     return projects.list_projects(conn)
@@ -128,6 +141,13 @@ def update_project(project_id: str, body: dict[str, Any], conn: sqlite3.Connecti
     if not project:
         raise HTTPException(status_code=404, detail="project not found")
     return project
+
+
+@app.delete("/api/projects/{project_id}")
+def delete_project(project_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    if not projects.delete_project(conn, project_id):
+        raise HTTPException(status_code=404, detail="project not found")
+    return {"deleted": project_id}
 
 
 @app.post("/api/projects/{project_id}/story")
@@ -199,12 +219,38 @@ def compose_page(page_id: str, body: dict[str, Any], conn: sqlite3.Connection = 
     return compiled
 
 
+@app.post("/api/pages/{page_id}/duplicate")
+def duplicate_page(page_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    page = projects.duplicate_page(conn, page_id)
+    if not page:
+        raise HTTPException(status_code=404, detail="page not found")
+    return page
+
+
 @app.patch("/api/pages/{page_id}")
 def update_page(page_id: str, body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
     page = projects.update_page(conn, page_id, body)
     if not page:
         raise HTTPException(status_code=404, detail="page not found")
     return page
+
+
+@app.post("/api/projects/{project_id}/reorder")
+def reorder_pages(project_id: str, body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    page_ids = body.get("page_ids")
+    if not isinstance(page_ids, list):
+        raise HTTPException(status_code=400, detail="page_ids must be a list")
+    try:
+        return {"pages": projects.reorder_pages(conn, project_id, page_ids)}
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.delete("/api/pages/{page_id}")
+def delete_page(page_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    if not projects.delete_page(conn, page_id):
+        raise HTTPException(status_code=404, detail="page not found")
+    return {"deleted": page_id}
 
 
 @app.get("/api/projects/{project_id}/gallery")
@@ -225,6 +271,11 @@ def generate_project(project_id: str, body: dict[str, Any] | None = None, conn: 
         raise HTTPException(status_code=404, detail="project not found")
     body = body or {}
     return jobs.generate_project(project_id, seed=body.get("seed"), profile=body.get("profile"))
+
+
+@app.get("/api/jobs")
+def list_jobs(limit: int = 50, conn: sqlite3.Connection = Depends(get_conn)):
+    return jobs.list_jobs(conn, limit=limit)
 
 
 @app.get("/api/jobs/{job_id}")

@@ -71,7 +71,7 @@ https://novelai.quicktagcloud.com/data/current.json
 
 - `current.json` 指向当前 release；不要硬编码 release id。2026-11-04 时为 `r-a6d5bdd0d0f55311867e`。
 - 下载后按 manifest 校验 sha256；缓存到 `data/raw/<release>/`。
-- 全量导入元数据；缩略图按需缓存，不一次性拉几万张。
+- 全量导入元数据；缩略图按需缓存到 `data/thumbs/`，UI 通过 `/api/codex/entries/{id}/thumbnail` 读取，不一次性拉几万张。
 - 分类完全照网站：保存 `tree` 和每个条目的 `path`，不另造主分类。
 - `tag_zh/*.json` 的 `d` 映射用于中文搜索（英文 tag → 中文）。
 - 同步按 contentHash / release 增量；记录 `synced_at`。
@@ -152,17 +152,18 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 
 - `codex_search(query, category_path?, include_artist_only=false, include_nsfw=false, limit=20)`
 - `codex_get(entry_id)`
-- `project_create(title)` / `project_list()` / `project_get(project_id)` / `project_update(project_id, patch)`
+- `project_create(title)` / `project_list()` / `project_get(project_id)` / `project_update(project_id, patch)` / `project_delete(project_id)`
 - `style_presets_list()`
 - `story_set(project_id, text)`
 - `storyboard_save(project_id, pages_json)`：校验 schema，拒绝不存在的 entry_id。
-- `page_list(project_id)` / `page_get(page_id)` / `page_update(page_id, patch)`
+- `page_list(project_id)` / `page_get(page_id)` / `page_update(page_id, patch)` / `page_duplicate(page_id)` / `page_delete(page_id)`
+- `project_reorder(project_id, page_ids)`
 - `gallery_list(project_id, sort="order"|"time")` → 画廊图片列表
 - `character_list(project_id)` / `character_upsert(project_id, body)`
 - `prompt_compose(page_id, entry_ids, style_preset_id?, mode="plain", include_nsfw=false)` → 正向 / 负向 / 丢弃明细
 - `generate_page(page_id, seed?, profile?)` → `job_id`
 - `generate_project(project_id, seed?, profile?)`：按页序串行批量生成
-- `job_status(job_id)` / `job_cancel(job_id)`
+- `job_list(limit?)` / `job_status(job_id)` / `job_cancel(job_id)`
 - `schema_get()`：给外部 AI 的项目/分镜 JSON schema 和用法说明
 
 外部 AI 必须先检索、再引用真实 entry_id；项目端负责校验，不能信任 AI 编造的 id。
@@ -188,7 +189,7 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - 布局：左侧故事/章节/页/角色/风格圣经；中间页卡片与页面预览；右侧法典抽屉与提示词栈；底部生成队列。
 - 顶部五步：故事 → 分镜 → 提示词 → 出图 → 画廊。
 - 页面详情必须展示：最终正向、负向、选中的法典条目、被过滤的 tag 及原因、seed、状态。
-- 关键交互：法典拖拽入栈、锁风格/角色、同 seed 重跑、A/B 对比、画廊按时间/内容切换、点图查看。
+- 关键交互：法典拖拽入栈、锁风格/角色、同 seed 重跑、A/B 对比、画廊按时间/内容切换、页序上下移动、删除页、点图查看。
 
 ## 10. 里程碑
 

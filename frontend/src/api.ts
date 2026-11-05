@@ -37,6 +37,19 @@ export type StylePreset = {
   tags: string;
 };
 
+export type Job = {
+  id: string;
+  page_id: string;
+  order_no: number;
+  project_id: string;
+  status: string;
+  seed: number | null;
+  output_path: string | null;
+  error: string | null;
+  started_at: string;
+  finished_at: string | null;
+};
+
 export type CodexEntry = {
   id: string;
   codex_id: string;

@@ -277,6 +277,82 @@ def upsert_character(conn: sqlite3.Connection, project_id: str, character: dict[
     return dict(row) if row else None
 
 
+def reorder_pages(conn: sqlite3.Connection, project_id: str, page_ids: list[str]) -> list[dict[str, Any]]:
+    rows = conn.execute("SELECT id FROM page WHERE project_id = ?", (project_id,)).fetchall()
+    current = {row["id"] for row in rows}
+    if set(page_ids) != current:
+        raise ValueError("page_ids must contain exactly the project pages")
+    for index, page_id in enumerate(page_ids, start=1):
+        conn.execute("UPDATE page SET order_no = ?, updated_at = datetime('now') WHERE id = ?", (index, page_id))
+    conn.execute("UPDATE project SET updated_at = datetime('now') WHERE id = ?", (project_id,))
+    conn.commit()
+    return list_pages(conn, project_id)
+
+
+def delete_page(conn: sqlite3.Connection, page_id: str) -> bool:
+    row = conn.execute("SELECT project_id FROM page WHERE id = ?", (page_id,)).fetchone()
+    if not row:
+        return False
+    conn.execute("DELETE FROM generation_job WHERE page_id = ?", (page_id,))
+    conn.execute("DELETE FROM page WHERE id = ?", (page_id,))
+    conn.execute("UPDATE project SET updated_at = datetime('now') WHERE id = ?", (row["project_id"],))
+    conn.commit()
+    return True
+
+
+def delete_project(conn: sqlite3.Connection, project_id: str) -> bool:
+    row = conn.execute("SELECT id FROM project WHERE id = ?", (project_id,)).fetchone()
+    if not row:
+        return False
+    conn.execute("DELETE FROM generation_job WHERE page_id IN (SELECT id FROM page WHERE project_id = ?)", (project_id,))
+    conn.execute("DELETE FROM page WHERE project_id = ?", (project_id,))
+    conn.execute("DELETE FROM characters WHERE project_id = ?", (project_id,))
+    conn.execute("DELETE FROM chapter WHERE project_id = ?", (project_id,))
+    conn.execute("DELETE FROM project WHERE id = ?", (project_id,))
+    conn.commit()
+    return True
+
+
+def duplicate_page(conn: sqlite3.Connection, page_id: str) -> dict[str, Any] | None:
+    row = conn.execute("SELECT * FROM page WHERE id = ?", (page_id,)).fetchone()
+    if not row:
+        return None
+    source = dict(row)
+    new_id_value = new_id()
+    next_order = conn.execute(
+        "SELECT COALESCE(MAX(order_no), 0) + 1 AS next_order FROM page WHERE project_id = ?",
+        (source["project_id"],),
+    ).fetchone()["next_order"]
+    conn.execute(
+        """
+        INSERT INTO page(
+          id, project_id, chapter_id, order_no, summary, layout_note, prompt, negative,
+          seed, status, image_path, refs_json, continuity_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            new_id_value,
+            source["project_id"],
+            source["chapter_id"],
+            next_order,
+            source["summary"],
+            source["layout_note"],
+            source["prompt"],
+            source["negative"],
+            source["seed"],
+            "draft",
+            None,
+            source["refs_json"],
+            source["continuity_json"],
+            now(),
+            now(),
+        ),
+    )
+    conn.execute("UPDATE project SET updated_at = datetime('now') WHERE id = ?", (source["project_id"],))
+    conn.commit()
+    return get_page(conn, new_id_value)
+
+
 def gallery_list(conn: sqlite3.Connection, project_id: str, sort: str = "order") -> list[dict[str, Any]]:
     order_sql = "updated_at DESC" if sort == "time" else "order_no ASC"
     rows = conn.execute(

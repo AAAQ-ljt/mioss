@@ -84,6 +84,19 @@ def _poll(job_id: str, prompt_id: str, page_id: str, project_id: str, order_no: 
         client.close()
 
 
+def list_jobs(conn: sqlite3.Connection, limit: int = 50) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT j.*, p.order_no, p.project_id
+        FROM generation_job j JOIN page p ON p.id = j.page_id
+        ORDER BY j.started_at DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def cancel_job(job_id: str) -> dict[str, Any] | None:
     conn = _connect()
     try:
@@ -165,6 +178,7 @@ def submit_page(page_id: str, seed: int | None = None, profile: dict[str, Any] |
         }
         client = ComfyClient()
         try:
+            client.validate_profile(merged_profile)
             graph = build_graph(page["prompt"], page.get("negative") or "", resolved_seed, merged_profile)
             response = client.queue(graph)
             prompt_id = response["prompt_id"]

@@ -65,6 +65,11 @@ def style_presets_list() -> Any:
     return _request("GET", "/api/style-presets")
 
 
+@server.tool(description="删除项目及其页、角色和任务记录。")
+def project_delete(project_id: str) -> Any:
+    return _request("DELETE", f"/api/projects/{project_id}")
+
+
 @server.tool(description="保存项目故事文本。")
 def story_set(project_id: str, story: str) -> Any:
     return _request("POST", f"/api/projects/{project_id}/story", json={"story": story})
@@ -83,6 +88,21 @@ def page_list(project_id: str) -> Any:
 @server.tool(description="更新页字段。")
 def page_update(page_id: str, patch: dict[str, Any]) -> Any:
     return _request("PATCH", f"/api/pages/{page_id}", json=patch)
+
+
+@server.tool(description="复制一页到末尾，状态重置为 draft。")
+def page_duplicate(page_id: str) -> Any:
+    return _request("POST", f"/api/pages/{page_id}/duplicate")
+
+
+@server.tool(description="删除一页及其任务记录。")
+def page_delete(page_id: str) -> Any:
+    return _request("DELETE", f"/api/pages/{page_id}")
+
+
+@server.tool(description="按给定 page_id 顺序重排项目页。")
+def project_reorder(project_id: str, page_ids: list[str]) -> Any:
+    return _request("POST", f"/api/projects/{project_id}/reorder", json={"page_ids": page_ids})
 
 
 @server.tool(description="获取项目画廊。sort=order 或 time。")
@@ -136,6 +156,11 @@ def generate_page(page_id: str, seed: int | None = None, profile: dict[str, Any]
 @server.tool(description="按页序串行生成项目全部页面；已有提示词的页面才会生成。")
 def generate_project(project_id: str, seed: int | None = None, profile: dict[str, Any] | None = None) -> Any:
     return _request("POST", f"/api/projects/{project_id}/generate_all", json={"seed": seed, "profile": profile})
+
+
+@server.tool(description="列出最近生成任务。")
+def job_list(limit: int = 50) -> Any:
+    return _request("GET", "/api/jobs", params={"limit": limit})
 
 
 @server.tool(description="查询生成任务状态。")
