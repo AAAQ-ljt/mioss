@@ -72,6 +72,7 @@ def categories(codex_id: str = Query(alias="codex_id"), conn: sqlite3.Connection
 def search(
     q: str,
     codex_id: str | None = None,
+    category_path: str | None = None,
     include_artist_only: bool = False,
     include_nsfw: bool = False,
     limit: int = 20,
@@ -81,6 +82,7 @@ def search(
         conn,
         q,
         codex_id=codex_id,
+        category_path=category_path,
         include_artist_only=include_artist_only,
         include_nsfw=include_nsfw,
         limit=limit,

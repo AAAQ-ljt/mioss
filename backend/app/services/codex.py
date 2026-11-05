@@ -36,6 +36,7 @@ def search_entries(
     conn: sqlite3.Connection,
     query: str,
     codex_id: str | None = None,
+    category_path: str | None = None,
     include_artist_only: bool = False,
     include_nsfw: bool = False,
     limit: int = 20,
@@ -54,6 +55,9 @@ def search_entries(
     if codex_id:
         clauses.append("e.codex_id = ?")
         params.append(codex_id)
+    if category_path:
+        clauses.append("e.category_path_json LIKE ?")
+        params.append(f'%"{category_path}"%')
 
     broad: list[str] = [
         "LOWER(e.title) LIKE ?",

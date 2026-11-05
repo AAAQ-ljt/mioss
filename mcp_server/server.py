@@ -25,6 +25,7 @@ def _request(method: str, path: str, **kwargs: Any) -> Any:
 def codex_search(
     query: str,
     codex_id: str | None = None,
+    category_path: str | None = None,
     include_artist_only: bool = False,
     include_nsfw: bool = False,
     limit: int = 20,
@@ -32,6 +33,8 @@ def codex_search(
     params = {"q": query, "include_artist_only": include_artist_only, "include_nsfw": include_nsfw, "limit": limit}
     if codex_id:
         params["codex_id"] = codex_id
+    if category_path:
+        params["category_path"] = category_path
     return _request("GET", "/api/codex/search", params=params)
 
 

@@ -29,6 +29,7 @@ export default function App() {
   const [draft, setDraft] = useState<Page | null>(null);
   const [query, setQuery] = useState("森林");
   const [codexFilter, setCodexFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
   const [includeNsfw, setIncludeNsfw] = useState(false);
   const [gallerySort, setGallerySort] = useState<"order" | "time">("order");
   const [jobId, setJobId] = useState<string | null>(null);
@@ -66,16 +67,22 @@ export default function App() {
     queryFn: () => api<Codex[]>("/api/codexes?include_nsfw=true"),
   });
 
+  const categoriesQuery = useQuery({
+    queryKey: ["codex-categories", codexFilter],
+    queryFn: () => api<{ name: string; count: number; children: unknown[] }[]>(`/api/codex/categories?codex_id=${encodeURIComponent(codexFilter)}`),
+    enabled: !!codexFilter,
+  });
+
   const stylePresetsQuery = useQuery({
     queryKey: ["style-presets"],
     queryFn: () => api<StylePreset[]>("/api/style-presets"),
   });
 
   const codexQuery = useQuery({
-    queryKey: ["codex", query, codexFilter, includeNsfw],
+    queryKey: ["codex", query, codexFilter, categoryFilter, includeNsfw],
     queryFn: () =>
       api<CodexEntry[]>(
-        `/api/codex/search?q=${encodeURIComponent(query)}&include_nsfw=${includeNsfw}&limit=20${codexFilter ? `&codex_id=${encodeURIComponent(codexFilter)}` : ""}`,
+        `/api/codex/search?q=${encodeURIComponent(query)}&include_nsfw=${includeNsfw}&limit=20${codexFilter ? `&codex_id=${encodeURIComponent(codexFilter)}` : ""}${categoryFilter ? `&category_path=${encodeURIComponent(categoryFilter)}` : ""}`,
       ),
     enabled: query.trim().length > 0,
   });
@@ -95,6 +102,10 @@ export default function App() {
       return status === "succeeded" || status === "failed" ? false : 2000;
     },
   });
+
+  useEffect(() => {
+    setCategoryFilter("");
+  }, [codexFilter]);
 
   const project = projectQuery.data;
   const pages = project?.pages || [];
@@ -685,6 +696,20 @@ export default function App() {
             {codexesQuery.data?.map((codex) => (
               <option key={codex.id} value={codex.id}>
                 {codex.title} ({codex.entry_count})
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="mb-2 w-full bg-black/20 px-2 py-1 text-sm outline-none disabled:opacity-40"
+            value={categoryFilter}
+            disabled={!codexFilter}
+            onChange={(event) => setCategoryFilter(event.target.value)}
+          >
+            <option value="">全部分类</option>
+            {categoriesQuery.data?.map((category) => (
+              <option key={category.name} value={category.name}>
+                {category.name} ({category.count})
               </option>
             ))}
           </select>
