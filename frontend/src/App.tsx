@@ -325,6 +325,17 @@ export default function App() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["project", selectedProjectId] }),
   });
 
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        if (draft) savePage.mutate();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [draft, savePage]);
+
   async function exportCurrentProject() {
     if (!selectedProjectId) return;
     const payload = await api<unknown>(`/api/projects/${selectedProjectId}/export`);
