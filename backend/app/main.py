@@ -20,6 +20,7 @@ async def lifespan(_: FastAPI):
     conn = connect()
     migrate(conn)
     conn.close()
+    jobs.recover_stale_jobs()
     yield
 
 

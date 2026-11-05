@@ -52,6 +52,29 @@ def _create_job(
     return job_id
 
 
+def _finish_job(conn: sqlite3.Connection, client: ComfyClient, job_id: str, history_entry: dict[str, Any]) -> None:
+    job = get_job(conn, job_id)
+    if not job:
+        return
+    page = get_page(conn, job["page_id"])
+    if not page:
+        raise RuntimeError("page not found")
+    image = client.output_image(history_entry)
+    if not image:
+        raise RuntimeError("ComfyUI finished without output image")
+    data = client.download(image)
+    output_path = project_dir(page["project_id"]) / "images" / image["filename"]
+    output_path.write_bytes(data)
+    conn.execute(
+        "UPDATE generation_job SET status = 'succeeded', output_path = ?, finished_at = datetime('now') WHERE id = ?",
+        (str(output_path), job_id),
+    )
+    conn.execute(
+        "UPDATE page SET status = 'done', image_path = ?, updated_at = datetime('now') WHERE id = ?",
+        (str(output_path), page["id"]),
+    )
+
+
 def _poll(job_id: str, prompt_id: str, page_id: str, project_id: str, order_no: int) -> None:
     conn = _connect()
     client = ComfyClient()
@@ -60,20 +83,7 @@ def _poll(job_id: str, prompt_id: str, page_id: str, project_id: str, order_no: 
         conn.execute("UPDATE page SET status = 'running', updated_at = datetime('now') WHERE id = ?", (page_id,))
         conn.commit()
         history = client.wait(prompt_id)
-        image = client.output_image(history)
-        if not image:
-            raise RuntimeError("ComfyUI finished without output image")
-        data = client.download(image)
-        output_path = project_dir(project_id) / "images" / image["filename"]
-        output_path.write_bytes(data)
-        conn.execute(
-            "UPDATE generation_job SET status = 'succeeded', output_path = ?, finished_at = datetime('now') WHERE id = ?",
-            (str(output_path), job_id),
-        )
-        conn.execute(
-            "UPDATE page SET status = 'done', image_path = ?, updated_at = datetime('now') WHERE id = ?",
-            (str(output_path), page_id),
-        )
+        _finish_job(conn, client, job_id, history)
     except Exception as error:
         conn.execute(
             "UPDATE generation_job SET status = 'failed', error = ?, finished_at = datetime('now') WHERE id = ?",
@@ -143,6 +153,35 @@ def cancel_job(job_id: str) -> dict[str, Any] | None:
         conn.commit()
         return get_job(conn, job_id)
     finally:
+        conn.close()
+
+
+def recover_stale_jobs() -> int:
+    conn = _connect()
+    client = ComfyClient()
+    recovered = 0
+    try:
+        rows = conn.execute("SELECT id, comfy_prompt_id, page_id FROM generation_job WHERE status IN ('queued', 'running')").fetchall()
+        for row in rows:
+            job_id = row["id"]
+            try:
+                if not row["comfy_prompt_id"]:
+                    raise RuntimeError("job has no ComfyUI prompt id")
+                history = client.history(row["comfy_prompt_id"])
+                if row["comfy_prompt_id"] not in history:
+                    raise RuntimeError("ComfyUI history not found after restart")
+                _finish_job(conn, client, job_id, history[row["comfy_prompt_id"]])
+                recovered += 1
+            except Exception as error:
+                conn.execute(
+                    "UPDATE generation_job SET status = 'failed', error = ?, finished_at = datetime('now') WHERE id = ?",
+                    (str(error), job_id),
+                )
+                conn.execute("UPDATE page SET status = 'failed', updated_at = datetime('now') WHERE id = ?", (row["page_id"],))
+        conn.commit()
+        return recovered
+    finally:
+        client.close()
         conn.close()
 
 
