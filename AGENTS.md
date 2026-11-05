@@ -230,6 +230,7 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - M3 挑图增强已验证：单页变体列表、生成两个变体、设为当前页、项目列表缩略图、Ctrl/Cmd+S 保存页均已接入。
 - M3 稳定性增强：后端启动会恢复 queued/running 任务，能从 ComfyUI history 找回产物；找不到的标记 failed，避免 UI 卡住。
 - M3 易用性增强：单页生成也会自动补齐空提示词；全局 mutation 错误 toast；Ctrl+Enter 生成当前页；health/status 显示最近同步时间。
+- M3 词库导出：`tools/export_prompts.py` 可导出 MOSS 可用、默认排除 R18 和画师词典的 JSONL/CSV 词库。
 - 法典抓取已验证；`data/raw/` 和 `_scrape/` 有原始 JSON；数据库在 `data/moss.db`。
 - 本机可跑工作流为 14 节点单次 MOSS；ComfyUI 烟测成功，848×1488、seed 12345、约 90 秒出图。
 - 当前默认 profile 出图偏彩色电影感动漫；同 seed 校准显示 `manga-ink` 风格块能出多格黑白漫画页，自然语言也能出高质量单页。漫画项目默认应切到 `manga-ink`，封面/插画可保留 `cinematic-anime`。
