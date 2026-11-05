@@ -17,6 +17,21 @@ type ComposeResult = {
   dropped: { id: string; reason: string }[];
 };
 
+type CategoryNode = {
+  name: string;
+  count: number;
+  children?: CategoryNode[];
+};
+
+type FlatCategory = { name: string; label: string; count: number };
+
+function flattenCategories(nodes: CategoryNode[] | undefined, depth = 0): FlatCategory[] {
+  return (nodes || []).flatMap((node) => [
+    { name: node.name, label: `${" ".repeat(depth * 2)}${node.name}`, count: node.count },
+    ...flattenCategories(node.children, depth + 1),
+  ]);
+}
+
 export default function App() {
   const queryClient = useQueryClient();
   const [projectTitle, setProjectTitle] = useState("测试漫画");
@@ -71,7 +86,7 @@ export default function App() {
 
   const categoriesQuery = useQuery({
     queryKey: ["codex-categories", codexFilter],
-    queryFn: () => api<{ name: string; count: number; children: unknown[] }[]>(`/api/codex/categories?codex_id=${encodeURIComponent(codexFilter)}`),
+    queryFn: () => api<CategoryNode[]>(`/api/codex/categories?codex_id=${encodeURIComponent(codexFilter)}`),
     enabled: !!codexFilter,
   });
 
@@ -817,9 +832,9 @@ export default function App() {
             onChange={(event) => setCategoryFilter(event.target.value)}
           >
             <option value="">全部分类</option>
-            {categoriesQuery.data?.map((category) => (
+            {flattenCategories(categoriesQuery.data).map((category) => (
               <option key={category.name} value={category.name}>
-                {category.name} ({category.count})
+                {category.label} ({category.count})
               </option>
             ))}
           </select>
