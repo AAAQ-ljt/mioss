@@ -1,0 +1,231 @@
+# MOSS 漫画分镜台 — AGENTS.md
+
+本文件是本仓库的最高优先级协作约定。任何智能体（Qoder / Claude / Codex 等）在修改代码前必须先读本文件；若本文件与其他说明冲突，以本文件为准。
+
+## 1. 项目定位
+
+把 NovelAI 法典（quicktagcloud）变成 MOSS 可用的画面词库，围绕“故事 → 分镜页 → 提示词 → 出图 → 画廊”做一套本地漫画生产工具。
+
+核心链路：
+
+```text
+故事文本
+  → AI（外部，经 MCP）拆成页级分镜
+  → 每页从法典选普通 tag
+  → 清洗 / 拼接 / 去重
+  → ComfyUI(MOSS) 出一张整页图
+  → 按项目归档到画廊（按时间或内容排序浏览）
+```
+
+明确不做：
+
+- 不在应用内内置 LLM，不保存 API Key；AI 只通过 MCP 调用本项目。
+- 第一版不做逐格生成；一页一张，页是生成单位。
+- 不做复杂排版/导出；一个项目一个文件夹，画廊只做排序浏览。
+- 不依赖 `NovelAI-Tag-local-v1.5.0/` 的运行时代码或服务；旧目录只读参考，保持原样。
+- 不在运行时抓 quicktagcloud；先同步到本地 SQLite，再由 MCP / UI 查询。
+
+## 2. 已锁定决策
+
+| 项 | 决定 |
+|---|---|
+| 技术栈 | FastAPI + SQLite + React 19 / Vite / TypeScript / Tailwind |
+| AI 接入 | 只做 MCP（stdio 薄层调本地 FastAPI，不重复业务逻辑） |
+| 出图单位 | 一页一张；页级分镜，后续归档到画廊 |
+| 词库范围 | 全部法典分批导入；分类与网站一致；按 release 增量更新 |
+| 提示词 | tag-first；清洗 NAI 语法；不做强制翻译 |
+| 画廊 | 一个项目（漫画）一个文件夹；生成图按时间或内容排序浏览；不做复杂排版/导出 |
+| 参考项目 | `NovelAI-Tag-local-v1.5.0/` 只读；可参考其 tools 思路，禁止修改与依赖 |
+
+## 3. 目录约定
+
+```text
+F:\moss\tag\
+  AGENTS.md
+  .gitignore
+  backend\              FastAPI、SQLite、ComfyUI 适配、业务服务
+  frontend\             React + Vite + TS + Tailwind
+  mcp\                  MCP stdio 服务（调 backend HTTP）
+  tools\                sync_codex.py、calibrate_prompt.py、start.bat 等
+  data\                 moss.db、raw\、thumbs\、tag_zh\（不提交）
+  projects\             一个项目一个文件夹，存生成图与项目元数据（不提交）
+  _scrape\              已下载的原始法典 JSON（不提交）
+  NovelAI-Tag-local-v1.5.0\   只读参考（不提交、不修改）
+
+projects\<project>\
+  project.json          项目元数据（含画廊排序）
+  images\               生成图，文件名带页序与时间
+```
+
+## 4. 数据源与同步
+
+法典数据来自站点发布链，不解析 HTML：
+
+```text
+https://novelai.quicktagcloud.com/data/current.json
+  → releases/<release>/manifest.json（含每个文件的 sha256 / size）
+  → <codex>.json / tag_zh/<codex>.json
+```
+
+规则：
+
+- `current.json` 指向当前 release；不要硬编码 release id。2026-11-04 时为 `r-a6d5bdd0d0f55311867e`。
+- 下载后按 manifest 校验 sha256；缓存到 `data/raw/<release>/`。
+- 全量导入元数据；缩略图按需缓存，不一次性拉几万张。
+- 分类完全照网站：保存 `tree` 和每个条目的 `path`，不另造主分类。
+- `tag_zh/*.json` 的 `d` 映射用于中文搜索（英文 tag → 中文）。
+- 同步按 contentHash / release 增量；记录 `synced_at`。
+- 法典数量与规模（当前）：约 15 本、6.2 万条（含 R18）；所长的非 R18 为 6043 + 304 条。
+- R18 法典也导入，但 UI 默认隐藏，需要显式开关；仅本地个人使用。
+- 法典原文与配图版权归原编纂者；不要把 SQLite、缩略图、原图打进公开仓库或再分发。
+
+## 5. MOSS 提示词清洗规则
+
+用户已实测：MOSS 认普通描述 tag，不认 NAI 画师词表和权重语法。
+
+输入是法典的 NAI tag 串，输出是逗号分隔的普通 tag 串：
+
+1. **丢弃画师标签**：`artist:*` 前缀直接丢；不带前缀但命中站点画师表的名字也丢。
+   - 画师表来自 `artist_strings.json` 的 `n45` / `n5` 列表，以及 `artist_index.json`。
+   - 匹配前做小写、空白归一、下划线转空格、括号内容归一（如 `sos (adult)` 与 `sos adult`）。
+2. **剥权重**：`0.95::tag::`、`1.05::tag::` → `tag`。
+3. **剥强调/削弱括号**：`{{{tag}}}`、`[[tag]]` → `tag`；下划线转空格。
+4. **负权重拆分**：`-1::curvy,artist collaboration::` 拆成两个 tag；默认进负面提示词。
+   - 策略可配置：`to_negative`（默认）/ `drop` / `only_minus2`；首轮出图后再定。
+5. **去重与规范化**：保留首次出现顺序，统一逗号，去空项。
+6. **画师词典类法典不参与 MOSS 选词**：`artist_*` 法典仍导入、可浏览缩略图，但 `moss_usable=0`，MCP 搜索默认不返回。
+7. **可用性标记**：条目过滤后如果只剩质量词/空，标为“仅参考”，不进入默认选词结果；UI 显示过滤明细和原因。
+
+输出示例：
+
+```text
+输入：
+0.95::hyulla::,0.8::artist:ahemaru::,-1::curvy,artist collaboration::,-2::multiple views::,high detail,masterpiece
+
+正向：
+high detail, masterpiece
+
+负向：
+curvy, artist collaboration, multiple views
+
+丢弃：
+hyulla（画师）, artist:ahemaru（画师）
+```
+
+每页最终提示词：
+
+```text
+风格块 + 角色锚点 + 页面内容 tag + 选中的法典普通 tag + 质量词
+```
+
+负向：
+
+```text
+全局负面 + 条目负向 + 负权重 tag
+```
+
+默认风格块（可项目级覆盖）：
+
+```text
+cinematic anime illustration, strong dramatic lighting, high saturation colors,
+sharp dynamic composition, film grain texture, lens blur, energetic character pose,
+detailed digital painting, movie key visual style
+```
+
+## 6. 数据模型（SQLite）
+
+第一版表：
+
+- `codex(id, title, author, version, type, nsfw, source_release, content_hash, tree_json, synced_at)`
+- `entry(id, codex_id, title, category_path_json, tags_raw, tags_positive, tags_negative, negative_raw, note, image, image_width, image_height, original, asset_rev, rating, is_new, moss_usable, artist_ratio, extra_json)`
+- `entry_tag(entry_id, tag, kind)`（普通 tag / 画师 / 质量词）
+- `tag_zh(tag, zh, codex_id)`
+- `project(id, title, story, style_preset_id, gallery_sort, created_at, updated_at)`
+- `chapter(id, project_id, title, order_no, summary)`
+- `page(id, chapter_id, order_no, summary, layout_note, prompt, negative, seed, status, image_path, created_at, updated_at)`
+- `character(id, project_id, name, anchor_tags, ref_image, notes)`
+- `style_preset(id, name, tags)`
+- `generation_job(id, page_id, prompt, negative, seed, workflow_profile, comfy_prompt_id, status, output_path, error, started_at, finished_at)`
+- `setting(key, value)`
+
+`gallery_sort` 取 `order`（内容/页序，默认）或 `time`（生成时间）。
+
+约定：SQLite WAL；原生 SQL + 编号迁移；不用 ORM；中文搜索先用 `LIKE` + `tag_zh` 反查，不上向量库。
+
+## 7. MCP 工具契约（第一版）
+
+MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务逻辑。
+
+- `codex_search(query, category_path?, include_artist_only=false, limit=20)`
+- `codex_get(entry_id)`
+- `project_create(title)` / `project_list()` / `project_get(project_id)`
+- `story_set(project_id, text)`
+- `storyboard_save(project_id, pages_json)`：校验 schema，拒绝不存在的 entry_id。
+- `page_list(project_id)` / `page_get(page_id)` / `page_update(page_id, patch)`
+- `gallery_list(project_id, sort="order"|"time")` → 画廊图片列表
+- `prompt_compose(page_id, entry_ids, style_preset_id?, mode="plain")` → 正向 / 负向 / 丢弃明细
+- `generate_page(page_id, seed?, profile?)` → `job_id`
+- `job_status(job_id)` / `job_cancel(job_id)`
+- `schema_get()`：给外部 AI 的项目/分镜 JSON schema 和用法说明
+
+外部 AI 必须先检索、再引用真实 entry_id；项目端负责校验，不能信任 AI 编造的 id。
+
+## 8. ComfyUI 接入
+
+- 地址：`http://127.0.0.1:8188`；ComfyUI 由用户通过 ComfyNexus 或启动脚本启动，应用默认不代管。
+- 第一版 profile 使用本机实际能跑的 14 节点工作流：
+  `ComfyUI/user/default/workflows/MOSS-Image-25&50步-Spectrum.json`
+  - 节点：UNETLoader 28、CLIPLoader 29、VAELoader 27、正向 CLIPTextEncode 25、负向 26、EmptyLatentImage 22、KSampler 16、VAEDecode 23、SaveImage 13、SpectrumMOSSImageAdaptive 30。
+  - 注入点：正向 25、负向 26、种子 16、宽高 22、采样参数 16、模型 profile 28/29/27。
+- 不要把 MOSS 文件夹里引用 `Moss_image\Moss-dirtyMoss...` / `Krea2\...` 的工作流当基线；本机缺这些模型。
+- 模型 profile 必须校验 `/object_info` 或模型目录；缺模型时给明确错误，不静默替换。
+- 默认串行队列（一次一个任务）；记录 prompt、seed、workflow、输出路径。
+- 通过 `/prompt` 入队，`/history` 或 WebSocket 取进度；产物落到 `projects/<project>/images/`，文件名带页序和时间。
+- ComfyUI 未启动时 UI 显示红色状态和启动提示，不要假装成功。
+
+## 9. UI 规范
+
+- 中文界面，英文 tag 保留原文；桌面优先，最小 1280 宽。
+- 视觉方向：漫画编辑部，不是通用 AI 后台。墨黑底、纸白画布、朱红强调色；细网格/网点纹理；故事正文用衬线中文字体，tag 用等宽字体；不要紫色渐变/玻璃拟态。
+- 布局：左侧故事/章节/页/角色/风格圣经；中间页卡片与页面预览；右侧法典抽屉与提示词栈；底部生成队列。
+- 顶部五步：故事 → 分镜 → 提示词 → 出图 → 画廊。
+- 页面详情必须展示：最终正向、负向、选中的法典条目、被过滤的 tag 及原因、seed、状态。
+- 关键交互：法典拖拽入栈、锁风格/角色、同 seed 重跑、A/B 对比、画廊按时间/内容切换、点图查看。
+
+## 10. 里程碑
+
+- **M0**：全量法典同步 → SQLite；中英文搜索/分类浏览；`sanitize_tags()` 金标测试；ComfyUI 烟测（固定 seed 出一张 9:16）；MCP 骨架。
+- **M1**：项目/章节/页数据模型；手动页编辑；提示词编译；单页出图 + 队列/历史 + 项目画廊。
+- **M2**：MCP 完整闭环（分镜保存 → 选词 → 出图）；角色圣经；连续性台账；批量生成。
+- **M3**：画廊完善（时间/内容排序、项目文件夹管理）；模型 profile 校准；参考图一致性；更多风格预设。
+
+## 11. 智能体工作规则
+
+1. 修改前先读本文件和相关代码；拿不准先问，不猜需求。
+2. 只改 `F:\moss\tag\` 下的新项目代码；禁止修改 `NovelAI-Tag-local-v1.5.0/`、`ComfyUI_windows_portable/`、`ComfyNexus/`。
+3. 不提交 `data/`、`projects/`、`_scrape/`、`.venv/`、`node_modules/`、`dist/`、数据库、图片、密钥；遵守 `.gitignore`。
+4. 不执行 `git push`；提交/推送前先征得用户同意。
+5. 不内置 LLM 客户端、不保存 API Key；AI 只能走 MCP。
+6. 不硬编码模型路径或 release id；从配置/`current.json` 解析并校验。
+7. 默认串行出图；不要为了吞吐并发压爆显存。
+8. 小步修改，不做无关重构；不留死代码、兼容垫片、调试输出。
+9. 后端改动配 pytest；清洗器必须有金标测试；前端改动跑 typecheck/build。
+10. 用户可见文案用中文；法典 tag 保留英文；文件 UTF-8；Windows 路径用 `F:\...`，脚本兼容 Git Bash。
+11. 数据仅本地个人使用；R18 默认隐藏；不把法典数据/图片用于再分发。
+12. 所有 entry_id、模型名、节点名必须来自真实数据/工作流；禁止编造。
+13. 生成图按项目归档：一个项目一个文件夹，不把不同漫画的图混在一起；画廊默认按内容/页序排序，可切换时间。
+
+## 12. 当前状态与待定
+
+当前状态：
+
+- 法典抓取已验证；`_scrape/` 已有 suozhang、artist、pack 等原始 JSON。
+- 本机可跑工作流为 14 节点单次 MOSS；ComfyUI 当前未启动在 8188。
+- MOSS 普通 tag 可用、画师标签和权重语法无效（用户实测）。
+- GitHub 远程：`https://github.com/AAAQ-ljt/mioss.git`（HTTPS 凭证可用；SSH 22 端口被挡）。
+- 旧项目 `NovelAI-Tag-local-v1.5.0/` 只读，不参与新项目运行。
+
+待定：
+
+- 漫画底模/profile：先用现有 MOSS 融合模型校准，再决定是否补二次元底模/LoRA。
+- 负权重策略：首轮跑完后确认 `-1` 是否也进负面。

@@ -1,0 +1,28 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Runtime data and generated assets
+data/
+projects/
+_scrape/
+exports/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Frontend
+node_modules/
+frontend/dist/
+dist/
+
+# Local reference only, never commit
+NovelAI-Tag-local-v1.5.0/
+
+# Secrets / local overrides
+.env
+.env.*
+*.local.json
