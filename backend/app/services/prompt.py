@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from typing import Any
 
@@ -104,3 +105,74 @@ def compose_prompt(
         "negative_count": len(negative.split(", ")) if negative else 0,
         "dropped": dropped,
     }
+
+
+def compose_for_page(
+    conn: sqlite3.Connection,
+    page_id: str,
+    entry_ids: list[str] | None = None,
+    character_ids: list[str] | None = None,
+    style_preset_id: str | None = None,
+    page_text: str | None = None,
+    character_text: str = "",
+    negative_text: str = "",
+    include_nsfw: bool = False,
+    save: bool = True,
+) -> dict[str, Any] | None:
+    row = conn.execute("SELECT * FROM page WHERE id = ?", (page_id,)).fetchone()
+    if not row:
+        return None
+    page = dict(row)
+
+    resolved_entry_ids = entry_ids if entry_ids is not None else json.loads(page.get("refs_json") or "[]")
+    if character_ids is None:
+        if page.get("character_ids_json") is None:
+            character_ids = [
+                char["id"]
+                for char in conn.execute(
+                    "SELECT id FROM characters WHERE project_id = ? ORDER BY name",
+                    (page["project_id"],),
+                ).fetchall()
+            ]
+        else:
+            character_ids = json.loads(page.get("character_ids_json") or "[]")
+
+    if style_preset_id is None:
+        project = conn.execute("SELECT style_preset_id FROM project WHERE id = ?", (page["project_id"],)).fetchone()
+        style_preset_id = project["style_preset_id"] if project else "manga-ink"
+
+    resolved_page_text = page_text
+    if resolved_page_text is None:
+        resolved_page_text = f"{page.get('summary') or ''} {page.get('layout_note') or ''}".strip()
+
+    continuity_value = continuity_text(json.loads(page.get("continuity_json") or "{}"))
+    result = compose_prompt(
+        conn,
+        style_preset_id=style_preset_id,
+        entry_ids=resolved_entry_ids,
+        page_text=resolved_page_text,
+        character_text=character_text,
+        negative_text=negative_text,
+        include_nsfw=include_nsfw,
+        project_id=page["project_id"],
+        character_ids=character_ids,
+        continuity_text_value=continuity_value,
+    )
+
+    if save:
+        conn.execute(
+            """
+            UPDATE page
+            SET prompt = ?, negative = ?, refs_json = ?, character_ids_json = ?, updated_at = datetime('now')
+            WHERE id = ?
+            """,
+            (
+                result["positive"],
+                result["negative"],
+                json.dumps(resolved_entry_ids, ensure_ascii=False),
+                json.dumps(character_ids, ensure_ascii=False),
+                page_id,
+            ),
+        )
+        conn.commit()
+    return result

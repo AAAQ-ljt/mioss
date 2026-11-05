@@ -133,6 +133,18 @@ def test_project_export_import_maps_characters(tmp_path):
     assert imported_page["character_ids"][0] == imported_characters[0]["id"]
 
 
+def test_compose_for_page_saves_prompt(tmp_path):
+    conn = make_conn(tmp_path)
+    project = projects.create_project(conn, "自动补齐", style_preset_id="test-style")
+    char = projects.upsert_character(conn, project["id"], {"name": "露娜", "anchor_tags": "silver hair"})
+    page = projects.add_page(conn, project["id"], {"summary": "雾林", "refs": ["suozhang-1"], "character_ids": [char["id"]], "continuity": {"location": "森林"}})
+    result = prompt.compose_for_page(conn, page["id"])
+    assert "silver hair" in result["positive"]
+    assert "forest" in result["positive"]
+    saved = projects.get_page(conn, page["id"])
+    assert saved["prompt"] == result["positive"]
+
+
 def test_page_character_selection_controls_compose(tmp_path):
     conn = make_conn(tmp_path)
     project = projects.create_project(conn, "角色选择", style_preset_id="test-style")

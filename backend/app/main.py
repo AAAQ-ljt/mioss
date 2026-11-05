@@ -214,32 +214,20 @@ def add_page(project_id: str, body: dict[str, Any], conn: sqlite3.Connection = D
 
 @app.post("/api/pages/{page_id}/compose")
 def compose_page(page_id: str, body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
-    page = projects.get_page(conn, page_id)
-    if not page:
-        raise HTTPException(status_code=404, detail="page not found")
-    entry_ids = body.get("entry_ids") or page.get("refs") or []
-    if "character_ids" in body:
-        character_ids = body.get("character_ids") or []
-    elif page.get("character_ids"):
-        character_ids = page["character_ids"]
-    else:
-        character_ids = [row["id"] for row in conn.execute("SELECT id FROM characters WHERE project_id = ?", (page["project_id"],))]
-    project_row = conn.execute("SELECT style_preset_id FROM project WHERE id = ?", (page["project_id"],)).fetchone()
-    style_preset_id = body.get("style_preset_id") or (project_row["style_preset_id"] if project_row else "manga-ink")
-    compiled = prompt.compose_prompt(
+    compiled = prompt.compose_for_page(
         conn,
-        style_preset_id=style_preset_id,
-        entry_ids=entry_ids,
-        page_text=body.get("page_text", page.get("summary", "") + " " + page.get("layout_note", "")),
+        page_id,
+        entry_ids=body.get("entry_ids"),
+        character_ids=body.get("character_ids"),
+        style_preset_id=body.get("style_preset_id"),
+        page_text=body.get("page_text"),
         character_text=body.get("character_text", ""),
         negative_text=body.get("negative_text", ""),
         include_nsfw=body.get("include_nsfw", False),
-        project_id=page["project_id"],
-        character_ids=character_ids,
-        continuity_text_value=prompt.continuity_text(page.get("continuity") or {}),
+        save=body.get("save", True),
     )
-    if body.get("save", True):
-        projects.update_page(conn, page_id, {"prompt": compiled["positive"], "negative": compiled["negative"], "refs": entry_ids})
+    if compiled is None:
+        raise HTTPException(status_code=404, detail="page not found")
     return compiled
 
 

@@ -11,6 +11,7 @@ from typing import Any
 from ..config import DB_PATH
 from .comfy import ComfyClient, build_graph
 from .projects import get_page, list_pages, project_dir
+from .prompt import compose_for_page
 
 
 def _connect() -> sqlite3.Connection:
@@ -148,6 +149,13 @@ def _generate_project(project_id: str, seed: int | None, profile: dict[str, Any]
         conn.close()
 
     for page in pages:
+        conn = _connect()
+        try:
+            if not page.get("prompt"):
+                compose_for_page(conn, page["id"], save=True)
+                page = get_page(conn, page["id"]) or page
+        finally:
+            conn.close()
         if not page.get("prompt"):
             continue
         job_id = submit_page(page["id"], seed=seed, profile=profile)
