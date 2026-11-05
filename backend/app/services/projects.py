@@ -372,6 +372,68 @@ def duplicate_page(conn: sqlite3.Connection, page_id: str) -> dict[str, Any] | N
     return get_page(conn, new_id_value)
 
 
+def export_project(conn: sqlite3.Connection, project_id: str) -> dict[str, Any] | None:
+    project = get_project(conn, project_id)
+    if not project:
+        return None
+    return {
+        "project": {
+            "title": project["title"],
+            "story": project.get("story", ""),
+            "style_preset_id": project.get("style_preset_id", "manga-ink"),
+            "gallery_sort": project.get("gallery_sort", "order"),
+        },
+        "characters": list_characters(conn, project_id),
+        "pages": project.get("pages", []),
+    }
+
+
+def import_project(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, Any] | None:
+    project_meta = payload.get("project") or {}
+    project = create_project(
+        conn,
+        title=project_meta.get("title", "导入漫画"),
+        story=project_meta.get("story", ""),
+        style_preset_id=project_meta.get("style_preset_id", "manga-ink"),
+    )
+    character_map: dict[str, str] = {}
+    for character in payload.get("characters") or []:
+        old_id = character.get("id")
+        saved = upsert_character(
+            conn,
+            project["id"],
+            {
+                "name": character.get("name", "未命名角色"),
+                "anchor_tags": character.get("anchor_tags", ""),
+                "ref_image": character.get("ref_image"),
+                "notes": character.get("notes", ""),
+            },
+        )
+        if old_id and saved:
+            character_map[old_id] = saved["id"]
+
+    pages = []
+    for index, page in enumerate(payload.get("pages") or [], start=1):
+        pages.append(
+            {
+                "order_no": int(page.get("order_no", index)),
+                "summary": page.get("summary", ""),
+                "layout_note": page.get("layout_note", ""),
+                "prompt": page.get("prompt", ""),
+                "negative": page.get("negative", ""),
+                "refs": page.get("refs") or [],
+                "continuity": page.get("continuity") or {},
+                "character_ids": [character_map.get(cid, cid) for cid in (page.get("character_ids") or [])],
+                "seed": page.get("seed"),
+                "status": "draft",
+                "image_path": None,
+            }
+        )
+    if pages:
+        replace_pages(conn, project["id"], pages)
+    return get_project(conn, project["id"])
+
+
 def gallery_list(conn: sqlite3.Connection, project_id: str, sort: str = "order") -> list[dict[str, Any]]:
     order_sql = "updated_at DESC" if sort == "time" else "order_no ASC"
     rows = conn.execute(

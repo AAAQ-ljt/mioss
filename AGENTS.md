@@ -153,6 +153,7 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - `codex_search(query, category_path?, include_artist_only=false, include_nsfw=false, limit=20)`
 - `codex_get(entry_id)`
 - `project_create(title)` / `project_list()` / `project_get(project_id)` / `project_update(project_id, patch)` / `project_delete(project_id)`
+- `project_export(project_id)` / `project_import(payload)`
 - `style_presets_list()`
 - `story_set(project_id, text)`
 - `storyboard_save(project_id, pages_json)`：校验 schema，拒绝不存在的 entry_id。

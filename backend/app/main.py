@@ -150,6 +150,22 @@ def delete_project(project_id: str, conn: sqlite3.Connection = Depends(get_conn)
     return {"deleted": project_id}
 
 
+@app.get("/api/projects/{project_id}/export")
+def export_project(project_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    payload = projects.export_project(conn, project_id)
+    if not payload:
+        raise HTTPException(status_code=404, detail="project not found")
+    return payload
+
+
+@app.post("/api/projects/import")
+def import_project(body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    project = projects.import_project(conn, body)
+    if not project:
+        raise HTTPException(status_code=400, detail="invalid project payload")
+    return project
+
+
 @app.post("/api/projects/{project_id}/story")
 def set_story(project_id: str, body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
     project = projects.set_story(conn, project_id, body.get("story", ""))

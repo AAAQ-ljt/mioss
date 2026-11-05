@@ -113,6 +113,24 @@ def test_compose_prompt_uses_character_anchor(tmp_path):
     assert "silver hair, amber eyes" in result["positive"]
 
 
+def test_project_export_import_maps_characters(tmp_path):
+    conn = make_conn(tmp_path)
+    project = projects.create_project(conn, "导出测试", style_preset_id="test-style")
+    luna = projects.upsert_character(conn, project["id"], {"name": "露娜", "anchor_tags": "silver hair"})
+    page = projects.add_page(conn, project["id"], {"summary": "雾林", "refs": ["suozhang-1"], "character_ids": [luna["id"]], "continuity": {"location": "森林"}})
+    payload = projects.export_project(conn, project["id"])
+    assert payload["pages"][0]["id"] == page["id"]
+
+    imported = projects.import_project(conn, payload)
+    imported_characters = projects.list_characters(conn, imported["id"])
+    assert imported["id"] != project["id"]
+    imported_page = imported["pages"][0]
+    assert imported_page["refs"] == ["suozhang-1"]
+    assert imported_page["continuity"] == {"location": "森林"}
+    assert imported_page["character_ids"] != [luna["id"]]
+    assert imported_page["character_ids"][0] == imported_characters[0]["id"]
+
+
 def test_page_character_selection_controls_compose(tmp_path):
     conn = make_conn(tmp_path)
     project = projects.create_project(conn, "角色选择", style_preset_id="test-style")

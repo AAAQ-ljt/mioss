@@ -70,6 +70,16 @@ def project_delete(project_id: str) -> Any:
     return _request("DELETE", f"/api/projects/{project_id}")
 
 
+@server.tool(description="导出项目 JSON（角色、页、refs、连续性、角色选择）。")
+def project_export(project_id: str) -> Any:
+    return _request("GET", f"/api/projects/{project_id}/export")
+
+
+@server.tool(description="导入项目 JSON，创建为新项目。")
+def project_import(payload: dict[str, Any]) -> Any:
+    return _request("POST", "/api/projects/import", json=payload)
+
+
 @server.tool(description="保存项目故事文本。")
 def story_set(project_id: str, story: str) -> Any:
     return _request("POST", f"/api/projects/{project_id}/story", json={"story": story})
