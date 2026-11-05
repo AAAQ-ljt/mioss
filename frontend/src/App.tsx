@@ -1,0 +1,516 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { api, type CodexEntry, type Page, type Project, type StylePreset } from "./api";
+
+type Health = {
+  ok: boolean;
+  release: string | null;
+  entries: { total: number; usable: number };
+  comfy: { ok: boolean; error?: string };
+};
+
+type Job = {
+  id: string;
+  status: string;
+  output_path: string | null;
+  error: string | null;
+};
+
+type ComposeResult = {
+  positive: string;
+  negative: string;
+  dropped: { id: string; reason: string }[];
+};
+
+export default function App() {
+  const queryClient = useQueryClient();
+  const [projectTitle, setProjectTitle] = useState("测试漫画");
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
+  const [storyDraft, setStoryDraft] = useState("");
+  const [stylePresetId, setStylePresetId] = useState("manga-ink");
+  const [draft, setDraft] = useState<Page | null>(null);
+  const [query, setQuery] = useState("森林");
+  const [includeNsfw, setIncludeNsfw] = useState(false);
+  const [gallerySort, setGallerySort] = useState<"order" | "time">("order");
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [lastCompose, setLastCompose] = useState<ComposeResult | null>(null);
+
+  const healthQuery = useQuery({
+    queryKey: ["health"],
+    queryFn: () => api<Health>("/api/health"),
+    refetchInterval: 5000,
+  });
+
+  const projectsQuery = useQuery({
+    queryKey: ["projects"],
+    queryFn: () => api<Project[]>("/api/projects"),
+  });
+
+  const projectQuery = useQuery({
+    queryKey: ["project", selectedProjectId],
+    queryFn: () => api<Project>(`/api/projects/${selectedProjectId}`),
+    enabled: !!selectedProjectId,
+    refetchInterval: (state) => {
+      const statuses = state.state.data?.pages?.map((page) => page.status) || [];
+      return statuses.some((status) => status === "queued" || status === "running") ? 3000 : false;
+    },
+  });
+
+  const stylePresetsQuery = useQuery({
+    queryKey: ["style-presets"],
+    queryFn: () => api<StylePreset[]>("/api/style-presets"),
+  });
+
+  const codexQuery = useQuery({
+    queryKey: ["codex", query, includeNsfw],
+    queryFn: () =>
+      api<CodexEntry[]>(
+        `/api/codex/search?q=${encodeURIComponent(query)}&include_nsfw=${includeNsfw}&limit=20`,
+      ),
+    enabled: query.trim().length > 0,
+  });
+
+  const jobQuery = useQuery({
+    queryKey: ["job", jobId],
+    queryFn: () => api<Job>(`/api/jobs/${jobId}`),
+    enabled: !!jobId,
+    refetchInterval: (state) => {
+      const status = state.state.data?.status;
+      return status === "succeeded" || status === "failed" ? false : 2000;
+    },
+  });
+
+  const project = projectQuery.data;
+  const pages = project?.pages || [];
+  const selectedPage = pages.find((page) => page.id === selectedPageId) || pages[0] || null;
+  const galleryPages = [...pages]
+    .filter((page) => page.image_url)
+    .sort((a, b) =>
+      gallerySort === "time"
+        ? (b.updated_at || "").localeCompare(a.updated_at || "")
+        : a.order_no - b.order_no,
+    );
+
+  useEffect(() => {
+    if (selectedPage) setSelectedPageId(selectedPage.id);
+  }, [selectedPage?.id]);
+
+  useEffect(() => {
+    if (selectedPage) setDraft(selectedPage);
+  }, [selectedPage?.id]);
+
+  useEffect(() => {
+    if (project) {
+      setStoryDraft(project.story || "");
+      setStylePresetId(project.style_preset_id || "manga-ink");
+    }
+  }, [project?.id, project?.story, project?.style_preset_id]);
+
+  const createProject = useMutation({
+    mutationFn: (title: string) => api<Project>("/api/projects", { method: "POST", body: JSON.stringify({ title, style_preset_id: "manga-ink" }) }),
+    onSuccess: (created) => {
+      setSelectedProjectId(created.id);
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+    },
+  });
+
+  const updateProject = useMutation({
+    mutationFn: (patch: Partial<Project>) => api<Project>(`/api/projects/${selectedProjectId}`, { method: "PATCH", body: JSON.stringify(patch) }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["project", selectedProjectId] }),
+  });
+
+  const saveStory = useMutation({
+    mutationFn: () => api<Project>(`/api/projects/${selectedProjectId}/story`, { method: "POST", body: JSON.stringify({ story: storyDraft }) }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["project", selectedProjectId] }),
+  });
+
+  const addPage = useMutation({
+    mutationFn: async () => {
+      return api<Page>(`/api/projects/${selectedProjectId}/pages`, {
+        method: "POST",
+        body: JSON.stringify({ summary: "新页面", layout_note: "", refs: [] }),
+      });
+    },
+    onSuccess: (page) => {
+      setSelectedPageId(page.id);
+      queryClient.invalidateQueries({ queryKey: ["project", selectedProjectId] });
+    },
+  });
+
+  const savePage = useMutation({
+    mutationFn: async () => {
+      if (!draft) return;
+      return api<Page>(`/api/pages/${draft.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          summary: draft.summary,
+          layout_note: draft.layout_note,
+          prompt: draft.prompt,
+          negative: draft.negative,
+          refs: draft.refs,
+          continuity: draft.continuity || {},
+          seed: draft.seed,
+        }),
+      });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["project", selectedProjectId] }),
+  });
+
+  const compose = useMutation({
+    mutationFn: async () => {
+      if (!draft) return;
+      await savePage.mutateAsync();
+      const result = await api<ComposeResult>(`/api/pages/${draft.id}/compose`, {
+        method: "POST",
+        body: JSON.stringify({
+          entry_ids: draft.refs,
+          page_text: `${draft.summary} ${draft.layout_note}`.trim(),
+          save: true,
+        }),
+      });
+      setDraft({ ...draft, prompt: result.positive, negative: result.negative });
+      setLastCompose(result);
+      return result;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["project", selectedProjectId] }),
+  });
+
+  const generate = useMutation({
+    mutationFn: async () => {
+      if (!draft) return;
+      await savePage.mutateAsync();
+      const result = await api<{ job_id: string }>(`/api/pages/${draft.id}/generate`, {
+        method: "POST",
+        body: JSON.stringify({ seed: draft.seed }),
+      });
+      setJobId(result.job_id);
+      return result;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["project", selectedProjectId] }),
+  });
+
+  const generateAll = useMutation({
+    mutationFn: async () => {
+      return api<{ project_id: string; status: string }>(`/api/projects/${selectedProjectId}/generate_all`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["project", selectedProjectId] }),
+  });
+
+  return (
+    <div className="min-h-screen">
+      <header className="panel halftone mx-3 mt-3 flex items-center justify-between px-4 py-3">
+        <div>
+          <h1 className="text-xl font-semibold">MOSS 漫画分镜台</h1>
+          <p className="text-sm opacity-70">故事 → 分镜 → 提示词 → 出图 → 画廊</p>
+        </div>
+        <div className="mono text-sm">
+          <span className={healthQuery.data?.comfy.ok ? "text-emerald-300" : "accent"}>
+            ComfyUI {healthQuery.data?.comfy.ok ? "在线" : "离线"}
+          </span>
+          <span className="mx-2 opacity-40">|</span>
+          <span>{healthQuery.data ? `${healthQuery.data.entries.usable}/${healthQuery.data.entries.total} 可用` : "加载中"}</span>
+          <span className="mx-2 opacity-40">|</span>
+          <span>{healthQuery.data?.release || "-"}</span>
+        </div>
+      </header>
+
+      <main className="grid min-h-[calc(100vh-92px)] grid-cols-[320px_minmax(0,1fr)_380px] gap-3 p-3">
+        <section className="panel overflow-hidden p-3">
+          <div className="mb-3 flex gap-2">
+            <input
+              className="min-w-0 flex-1 bg-transparent px-2 py-1 outline-none placeholder:opacity-40"
+              value={projectTitle}
+              onChange={(event) => setProjectTitle(event.target.value)}
+              placeholder="漫画标题"
+            />
+            <button className="border border-[#e4572e] px-3 py-1 text-[#e4572e]" onClick={() => createProject.mutate(projectTitle)}>
+              新建
+            </button>
+          </div>
+
+          <div className="mb-3 max-h-40 overflow-auto">
+            {projectsQuery.data?.map((item) => (
+              <button
+                key={item.id}
+                className={`mb-1 block w-full px-2 py-1 text-left ${selectedProjectId === item.id ? "bg-white/10" : "hover:bg-white/5"}`}
+                onClick={() => setSelectedProjectId(item.id)}
+              >
+                {item.title} <span className="opacity-50">({item.page_count || 0})</span>
+              </button>
+            ))}
+          </div>
+
+          <label className="mb-2 block text-sm opacity-70">
+            风格预设
+            <select
+              className="mt-1 w-full bg-black/20 px-2 py-1 outline-none disabled:opacity-40"
+              value={stylePresetId}
+              disabled={!selectedProjectId}
+              onChange={(event) => setStylePresetId(event.target.value)}
+            >
+              {stylePresetsQuery.data?.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            className="mb-3 border border-white/20 px-3 py-1 text-sm disabled:opacity-40"
+            disabled={!selectedProjectId}
+            onClick={() => updateProject.mutate({ style_preset_id: stylePresetId })}
+          >
+            应用风格
+          </button>
+
+          <textarea
+            className="serif mb-3 h-40 w-full resize-none bg-black/20 p-2 outline-none"
+            value={storyDraft}
+            onChange={(event) => setStoryDraft(event.target.value)}
+            placeholder="故事梗概"
+            disabled={!selectedProjectId}
+          />
+          <div className="mb-4 flex flex-wrap gap-2">
+            <button className="border border-white/20 px-3 py-1 disabled:opacity-40" onClick={() => saveStory.mutate()} disabled={!selectedProjectId}>
+              保存故事
+            </button>
+            <button className="border border-white/20 px-3 py-1 disabled:opacity-40" onClick={() => addPage.mutate()} disabled={!selectedProjectId}>
+              加一页
+            </button>
+            <button className="border border-[#e4572e] px-3 py-1 text-[#e4572e] disabled:opacity-40" onClick={() => generateAll.mutate()} disabled={!selectedProjectId}>
+              批量生成
+            </button>
+          </div>
+
+          <div className="max-h-56 overflow-auto">
+            {pages.map((page) => (
+              <button
+                key={page.id}
+                className={`mb-1 flex w-full items-center justify-between px-2 py-1 text-left ${selectedPageId === page.id ? "bg-white/10" : "hover:bg-white/5"}`}
+                onClick={() => setSelectedPageId(page.id)}
+              >
+                <span>第 {page.order_no} 页</span>
+                <span className="mono text-xs opacity-60">{page.status}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-sm opacity-70">画廊</span>
+            <div className="flex gap-1 text-xs">
+              <button
+                className={`border px-2 py-1 ${gallerySort === "order" ? "border-[#e4572e] text-[#e4572e]" : "border-white/20"}`}
+                onClick={() => setGallerySort("order")}
+              >
+                内容
+              </button>
+              <button
+                className={`border px-2 py-1 ${gallerySort === "time" ? "border-[#e4572e] text-[#e4572e]" : "border-white/20"}`}
+                onClick={() => setGallerySort("time")}
+              >
+                时间
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            {galleryPages.map((page) => (
+              <a key={page.id} href={page.image_url || "#"} target="_blank" className="block border border-white/15">
+                <img src={page.image_url || undefined} alt={`第 ${page.order_no} 页`} className="aspect-[9/16] w-full object-cover" />
+              </a>
+            ))}
+          </div>
+        </section>
+
+        <section className="panel overflow-auto p-4">
+          {!draft ? (
+            <div className="mt-20 text-center opacity-50">选择或新建一页</div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold">第 {draft.order_no} 页</h2>
+                <span className="mono text-sm opacity-60">{draft.status}</span>
+              </div>
+
+              <label className="block">
+                <span className="mb-1 block text-sm opacity-70">页面摘要</span>
+                <textarea
+                  className="serif h-24 w-full resize-none bg-black/20 p-2 outline-none"
+                  value={draft.summary}
+                  onChange={(event) => setDraft({ ...draft, summary: event.target.value })}
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-sm opacity-70">版式/镜头</span>
+                <textarea
+                  className="h-20 w-full resize-none bg-black/20 p-2 outline-none"
+                  value={draft.layout_note}
+                  onChange={(event) => setDraft({ ...draft, layout_note: event.target.value })}
+                />
+              </label>
+
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  ["location", "地点"],
+                  ["time", "时间"],
+                  ["outfit", "服装"],
+                  ["injuries", "伤势"],
+                  ["props", "道具"],
+                  ["mood", "情绪"],
+                ].map(([key, label]) => (
+                  <label key={key} className="block">
+                    <span className="mb-1 block text-sm opacity-70">{label}</span>
+                    <input
+                      className="w-full bg-black/20 px-2 py-1 outline-none"
+                      value={draft.continuity?.[key] || ""}
+                      onChange={(event) =>
+                        setDraft({
+                          ...draft,
+                          continuity: { ...(draft.continuity || {}), [key]: event.target.value },
+                        })
+                      }
+                    />
+                  </label>
+                ))}
+              </div>
+
+              <div>
+                <span className="mb-1 block text-sm opacity-70">法典 refs</span>
+                <div className="flex flex-wrap gap-2">
+                  {draft.refs.map((ref) => {
+                    const detail = draft.ref_details.find((item) => item.id === ref);
+                    return (
+                      <button
+                        key={ref}
+                        className="mono border border-white/20 px-2 py-1 text-xs hover:border-[#e4572e]"
+                        onClick={() =>
+                          setDraft({
+                            ...draft,
+                            refs: draft.refs.filter((item) => item !== ref),
+                            ref_details: draft.ref_details.filter((item) => item.id !== ref),
+                          })
+                        }
+                      >
+                        {detail?.title || ref} ×
+                      </button>
+                    );
+                  })}
+                  {draft.refs.length === 0 && <span className="opacity-40">从右侧法典抽屉加入</span>}
+                </div>
+              </div>
+
+              <label className="block">
+                <span className="mb-1 block text-sm opacity-70">正向提示词</span>
+                <textarea
+                  className="mono h-36 w-full resize-none bg-black/20 p-2 text-sm outline-none"
+                  value={draft.prompt}
+                  onChange={(event) => setDraft({ ...draft, prompt: event.target.value })}
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-sm opacity-70">负向提示词</span>
+                <textarea
+                  className="mono h-24 w-full resize-none bg-black/20 p-2 text-sm outline-none"
+                  value={draft.negative}
+                  onChange={(event) => setDraft({ ...draft, negative: event.target.value })}
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-sm opacity-70">Seed</span>
+                <input
+                  className="mono w-40 bg-black/20 px-2 py-1 outline-none"
+                  type="number"
+                  value={draft.seed ?? ""}
+                  onChange={(event) => setDraft({ ...draft, seed: event.target.value ? Number(event.target.value) : null })}
+                />
+              </label>
+
+              <div className="flex flex-wrap gap-2">
+                <button className="border border-white/20 px-3 py-1" onClick={() => savePage.mutate()}>
+                  保存
+                </button>
+                <button className="border border-white/20 px-3 py-1" onClick={() => compose.mutate()}>
+                  编译提示词
+                </button>
+                <button className="border border-[#e4572e] px-3 py-1 text-[#e4572e]" onClick={() => generate.mutate()}>
+                  生成本页
+                </button>
+              </div>
+
+              {lastCompose && (
+                <div className="mono text-xs opacity-70">
+                  过滤/跳过 {lastCompose.dropped.length} 项：{lastCompose.dropped.map((item) => `${item.id}:${item.reason}`).join(", ")}
+                </div>
+              )}
+
+              {jobQuery.data && (
+                <div className="panel p-3">
+                  <div className="mono text-sm">任务 {jobQuery.data.id}: {jobQuery.data.status}</div>
+                  {jobQuery.data.error && <div className="accent mt-2 text-sm">{jobQuery.data.error}</div>}
+                  {jobQuery.data.output_path && <div className="mt-2 break-all text-xs opacity-70">{jobQuery.data.output_path}</div>}
+                </div>
+              )}
+
+              {draft.image_url && (
+                <a href={draft.image_url} target="_blank" className="block max-w-[420px] border border-white/15">
+                  <img src={draft.image_url} alt="页面预览" className="w-full" />
+                </a>
+              )}
+            </div>
+          )}
+        </section>
+
+        <section className="panel overflow-hidden p-3">
+          <div className="mb-3 flex gap-2">
+            <input
+              className="min-w-0 flex-1 bg-transparent px-2 py-1 outline-none placeholder:opacity-40"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="搜索法典 tag / 中文"
+            />
+          </div>
+          <label className="mb-3 flex items-center gap-2 text-xs opacity-70">
+            <input type="checkbox" checked={includeNsfw} onChange={(event) => setIncludeNsfw(event.target.checked)} />
+            显示 R18（本地个人使用）
+          </label>
+
+          <div className="max-h-[calc(100vh-170px)] overflow-auto">
+            {codexQuery.data?.map((entry) => (
+              <div key={entry.id} className="panel mb-2 p-2">
+                <div className="flex gap-2">
+                  {entry.image_url && <img src={entry.image_url} alt={entry.title} className="h-24 w-16 object-cover" />}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium">{entry.title}</div>
+                    <div className="mono text-xs opacity-60">{entry.id}</div>
+                    <div className="mono mt-1 line-clamp-3 text-xs opacity-80">{entry.tags_positive}</div>
+                    <button
+                      className="mt-2 border border-white/20 px-2 py-1 text-xs hover:border-[#e4572e] disabled:opacity-40"
+                      disabled={!draft || draft.refs.includes(entry.id)}
+                      onClick={() =>
+                        draft &&
+                        setDraft({
+                          ...draft,
+                          refs: [...draft.refs, entry.id],
+                          ref_details: [...draft.ref_details, { id: entry.id, title: entry.title, tags_positive: entry.tags_positive, image_url: entry.image_url }],
+                        })
+                      }
+                    >
+                      {draft?.refs.includes(entry.id) ? "已加入" : "加入本页"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}

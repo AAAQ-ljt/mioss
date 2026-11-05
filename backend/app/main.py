@@ -1,0 +1,247 @@
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+from typing import Any
+
+from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+import sqlite3
+
+from .config import ensure_dirs, FRONTEND_DIST, PROJECTS_DIR
+from .db import connect, migrate
+from .services import codex, comfy, jobs, projects, prompt
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    ensure_dirs()
+    conn = connect()
+    migrate(conn)
+    conn.close()
+    yield
+
+
+app = FastAPI(title="MOSS Manga Studio", lifespan=lifespan)
+PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/projects", StaticFiles(directory=PROJECTS_DIR), name="projects")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+def get_conn():
+    conn = connect()
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+@app.get("/api/health")
+def health(conn: sqlite3.Connection = Depends(get_conn)):
+    release = conn.execute("SELECT value FROM setting WHERE key = 'release'").fetchone()
+    counts = conn.execute("SELECT COUNT(*) AS total, COALESCE(SUM(moss_usable), 0) AS usable FROM entry").fetchone()
+    client = comfy.ComfyClient()
+    comfy_health = client.health()
+    client.close()
+    return {
+        "ok": True,
+        "release": release["value"] if release else None,
+        "entries": dict(counts),
+        "comfy": comfy_health,
+    }
+
+
+@app.get("/api/codexes")
+def list_codexes(include_nsfw: bool = False, conn: sqlite3.Connection = Depends(get_conn)):
+    return codex.list_codexes(conn, include_nsfw=include_nsfw)
+
+
+@app.get("/api/codex/categories")
+def categories(codex_id: str = Query(alias="codex_id"), conn: sqlite3.Connection = Depends(get_conn)):
+    return codex.categories(conn, codex_id)
+
+
+@app.get("/api/codex/search")
+def search(
+    q: str,
+    codex_id: str | None = None,
+    include_artist_only: bool = False,
+    include_nsfw: bool = False,
+    limit: int = 20,
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    return codex.search_entries(
+        conn,
+        q,
+        codex_id=codex_id,
+        include_artist_only=include_artist_only,
+        include_nsfw=include_nsfw,
+        limit=limit,
+    )
+
+
+@app.get("/api/codex/entries/{entry_id}")
+def get_entry(entry_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    entry = codex.get_entry(conn, entry_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="entry not found")
+    return entry
+
+
+@app.get("/api/style-presets")
+def list_style_presets(conn: sqlite3.Connection = Depends(get_conn)):
+    return projects.list_style_presets(conn)
+
+
+@app.get("/api/projects")
+def list_projects(conn: sqlite3.Connection = Depends(get_conn)):
+    return projects.list_projects(conn)
+
+
+@app.post("/api/projects")
+def create_project(body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    return projects.create_project(
+        conn,
+        title=body.get("title", "未命名漫画"),
+        story=body.get("story", ""),
+        style_preset_id=body.get("style_preset_id", "manga-ink"),
+    )
+
+
+@app.get("/api/projects/{project_id}")
+def get_project(project_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    project = projects.get_project(conn, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="project not found")
+    return project
+
+
+@app.patch("/api/projects/{project_id}")
+def update_project(project_id: str, body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    project = projects.update_project(conn, project_id, body)
+    if not project:
+        raise HTTPException(status_code=404, detail="project not found")
+    return project
+
+
+@app.post("/api/projects/{project_id}/story")
+def set_story(project_id: str, body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    project = projects.set_story(conn, project_id, body.get("story", ""))
+    if not project:
+        raise HTTPException(status_code=404, detail="project not found")
+    return project
+
+
+@app.post("/api/projects/{project_id}/storyboard")
+def save_storyboard(project_id: str, body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    pages = body.get("pages")
+    if not isinstance(pages, list):
+        raise HTTPException(status_code=400, detail="pages must be a list")
+    for page in pages:
+        for ref in page.get("refs") or page.get("entry_ids") or []:
+            if not codex.get_entry(conn, ref):
+                raise HTTPException(status_code=400, detail=f"unknown entry ref: {ref}")
+    return {"pages": projects.replace_pages(conn, project_id, pages)}
+
+
+@app.get("/api/projects/{project_id}/characters")
+def list_characters(project_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    return projects.list_characters(conn, project_id)
+
+
+@app.post("/api/projects/{project_id}/characters")
+def upsert_character(project_id: str, body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    character = projects.upsert_character(conn, project_id, body)
+    if not character:
+        raise HTTPException(status_code=500, detail="character save failed")
+    return character
+
+
+@app.post("/api/projects/{project_id}/pages")
+def add_page(project_id: str, body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    for ref in body.get("refs") or body.get("entry_ids") or []:
+        if not codex.get_entry(conn, ref):
+            raise HTTPException(status_code=400, detail=f"unknown entry ref: {ref}")
+    page = projects.add_page(conn, project_id, body)
+    if not page:
+        raise HTTPException(status_code=404, detail="project not found")
+    return page
+
+
+@app.post("/api/pages/{page_id}/compose")
+def compose_page(page_id: str, body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    page = projects.get_page(conn, page_id)
+    if not page:
+        raise HTTPException(status_code=404, detail="page not found")
+    entry_ids = body.get("entry_ids") or page.get("refs") or []
+    project_row = conn.execute("SELECT style_preset_id FROM project WHERE id = ?", (page["project_id"],)).fetchone()
+    style_preset_id = body.get("style_preset_id") or (project_row["style_preset_id"] if project_row else "manga-ink")
+    compiled = prompt.compose_prompt(
+        conn,
+        style_preset_id=style_preset_id,
+        entry_ids=entry_ids,
+        page_text=body.get("page_text", page.get("summary", "") + " " + page.get("layout_note", "")),
+        character_text=body.get("character_text", ""),
+        negative_text=body.get("negative_text", ""),
+        include_nsfw=body.get("include_nsfw", False),
+        project_id=page["project_id"],
+        character_ids=body.get("character_ids") or [],
+        continuity_text_value=prompt.continuity_text(page.get("continuity") or {}),
+    )
+    if body.get("save", True):
+        projects.update_page(conn, page_id, {"prompt": compiled["positive"], "negative": compiled["negative"], "refs": entry_ids})
+    return compiled
+
+
+@app.patch("/api/pages/{page_id}")
+def update_page(page_id: str, body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    page = projects.update_page(conn, page_id, body)
+    if not page:
+        raise HTTPException(status_code=404, detail="page not found")
+    return page
+
+
+@app.get("/api/projects/{project_id}/gallery")
+def gallery(project_id: str, sort: str = "order", conn: sqlite3.Connection = Depends(get_conn)):
+    return projects.gallery_list(conn, project_id, sort=sort)
+
+
+@app.post("/api/pages/{page_id}/generate")
+def generate_page(page_id: str, body: dict[str, Any] | None = None):
+    body = body or {}
+    job_id = jobs.submit_page(page_id, seed=body.get("seed"), profile=body.get("profile"))
+    return {"job_id": job_id}
+
+
+@app.post("/api/projects/{project_id}/generate_all")
+def generate_project(project_id: str, body: dict[str, Any] | None = None, conn: sqlite3.Connection = Depends(get_conn)):
+    if not projects.get_project(conn, project_id):
+        raise HTTPException(status_code=404, detail="project not found")
+    body = body or {}
+    return jobs.generate_project(project_id, seed=body.get("seed"), profile=body.get("profile"))
+
+
+@app.get("/api/jobs/{job_id}")
+def get_job(job_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    job = jobs.get_job(conn, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job not found")
+    return job
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+def cancel_job(job_id: str):
+    job = jobs.cancel_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job not found")
+    return job
+
+
+if FRONTEND_DIST.exists():
+    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")

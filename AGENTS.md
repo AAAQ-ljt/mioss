@@ -45,7 +45,7 @@ F:\moss\tag\
   .gitignore
   backend\              FastAPI、SQLite、ComfyUI 适配、业务服务
   frontend\             React + Vite + TS + Tailwind
-  mcp\                  MCP stdio 服务（调 backend HTTP）
+  mcp_server\             MCP stdio 服务（调 backend HTTP；目录不能叫 mcp，避免遮蔽 SDK）
   tools\                sync_codex.py、calibrate_prompt.py、start.bat 等
   data\                 moss.db、raw\、thumbs\、tag_zh\（不提交）
   projects\             一个项目一个文件夹，存生成图与项目元数据（不提交）
@@ -76,7 +76,7 @@ https://novelai.quicktagcloud.com/data/current.json
 - `tag_zh/*.json` 的 `d` 映射用于中文搜索（英文 tag → 中文）。
 - 同步按 contentHash / release 增量；记录 `synced_at`。
 - 法典数量与规模（当前）：约 15 本、6.2 万条（含 R18）；所长的非 R18 为 6043 + 304 条。
-- R18 法典也导入，但 UI 默认隐藏，需要显式开关；仅本地个人使用。
+- R18 默认隐藏：既过滤 `codex.nsfw=1`，也过滤条目级 `rating` 非 `safe`（`r18` / `r18g` / `nsfw` / `restricted`）；UI/MCP 需要显式 `include_nsfw=true` 才返回。
 - 法典原文与配图版权归原编纂者；不要把 SQLite、缩略图、原图打进公开仓库或再分发。
 
 ## 5. MOSS 提示词清洗规则
@@ -124,13 +124,7 @@ hyulla（画师）, artist:ahemaru（画师）
 全局负面 + 条目负向 + 负权重 tag
 ```
 
-默认风格块（可项目级覆盖）：
-
-```text
-cinematic anime illustration, strong dramatic lighting, high saturation colors,
-sharp dynamic composition, film grain texture, lens blur, energetic character pose,
-detailed digital painting, movie key visual style
-```
+默认风格块按项目类型选择：漫画页优先用 `manga-ink`，封面/单幅插画可用 `cinematic-anime`。校准已证明 `black and white manga, pen line art, screentone, cel shading, clean panel borders, dramatic composition` 能出多格黑白漫画页。
 
 ## 6. 数据模型（SQLite）
 
@@ -156,15 +150,18 @@ detailed digital painting, movie key visual style
 
 MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务逻辑。
 
-- `codex_search(query, category_path?, include_artist_only=false, limit=20)`
+- `codex_search(query, category_path?, include_artist_only=false, include_nsfw=false, limit=20)`
 - `codex_get(entry_id)`
-- `project_create(title)` / `project_list()` / `project_get(project_id)`
+- `project_create(title)` / `project_list()` / `project_get(project_id)` / `project_update(project_id, patch)`
+- `style_presets_list()`
 - `story_set(project_id, text)`
 - `storyboard_save(project_id, pages_json)`：校验 schema，拒绝不存在的 entry_id。
 - `page_list(project_id)` / `page_get(page_id)` / `page_update(page_id, patch)`
 - `gallery_list(project_id, sort="order"|"time")` → 画廊图片列表
-- `prompt_compose(page_id, entry_ids, style_preset_id?, mode="plain")` → 正向 / 负向 / 丢弃明细
+- `character_list(project_id)` / `character_upsert(project_id, body)`
+- `prompt_compose(page_id, entry_ids, style_preset_id?, mode="plain", include_nsfw=false)` → 正向 / 负向 / 丢弃明细
 - `generate_page(page_id, seed?, profile?)` → `job_id`
+- `generate_project(project_id, seed?, profile?)`：按页序串行批量生成
 - `job_status(job_id)` / `job_cancel(job_id)`
 - `schema_get()`：给外部 AI 的项目/分镜 JSON schema 和用法说明
 
@@ -182,6 +179,7 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - 默认串行队列（一次一个任务）；记录 prompt、seed、workflow、输出路径。
 - 通过 `/prompt` 入队，`/history` 或 WebSocket 取进度；产物落到 `projects/<project>/images/`，文件名带页序和时间。
 - ComfyUI 未启动时 UI 显示红色状态和启动提示，不要假装成功。
+- 本机启动 ComfyUI 烟测需要 `PYTHONIOENCODING=utf-8`，否则 `ComfyUI_JosiaNodes` 的 emoji 日志会在 GBK 控制台抛 UnicodeEncodeError 导致启动失败。
 
 ## 9. UI 规范
 
@@ -194,7 +192,7 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 
 ## 10. 里程碑
 
-- **M0**：全量法典同步 → SQLite；中英文搜索/分类浏览；`sanitize_tags()` 金标测试；ComfyUI 烟测（固定 seed 出一张 9:16）；MCP 骨架。
+- **M0**：全量法典同步 → SQLite；中英文搜索/分类浏览；`sanitize_tags()` 金标测试；ComfyUI 烟测（固定 seed 出一张 9:16）；MCP 骨架。状态：已完成。
 - **M1**：项目/章节/页数据模型；手动页编辑；提示词编译；单页出图 + 队列/历史 + 项目画廊。
 - **M2**：MCP 完整闭环（分镜保存 → 选词 → 出图）；角色圣经；连续性台账；批量生成。
 - **M3**：画廊完善（时间/内容排序、项目文件夹管理）；模型 profile 校准；参考图一致性；更多风格预设。
@@ -219,8 +217,12 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 
 当前状态：
 
-- 法典抓取已验证；`_scrape/` 已有 suozhang、artist、pack 等原始 JSON。
-- 本机可跑工作流为 14 节点单次 MOSS；ComfyUI 当前未启动在 8188。
+- M0 已完成：全量法典同步 61979 条，MOSS 可用 37385 条；`sanitize_tags()` 金标测试通过；FastAPI + React 骨架可运行；MCP 已注册 20 个工具。
+- M1 基础闭环已验证：项目 → 角色锚点 → 页 refs → 编译提示词 → 生成 9:16 黑白多格漫画页，产物按项目文件夹归档。
+- M2 已验证：页面连续性台账、批量串行生成、前端连续性/批量控件可用；两页串行生成成功，页序和黑白漫画风格稳定。
+- 法典抓取已验证；`data/raw/` 和 `_scrape/` 有原始 JSON；数据库在 `data/moss.db`。
+- 本机可跑工作流为 14 节点单次 MOSS；ComfyUI 烟测成功，848×1488、seed 12345、约 90 秒出图。
+- 当前默认 profile 出图偏彩色电影感动漫；同 seed 校准显示 `manga-ink` 风格块能出多格黑白漫画页，自然语言也能出高质量单页。漫画项目默认应切到 `manga-ink`，封面/插画可保留 `cinematic-anime`。
 - MOSS 普通 tag 可用、画师标签和权重语法无效（用户实测）。
 - GitHub 远程：`https://github.com/AAAQ-ljt/mioss.git`（HTTPS 凭证可用；SSH 22 端口被挡）。
 - 旧项目 `NovelAI-Tag-local-v1.5.0/` 只读，不参与新项目运行。
