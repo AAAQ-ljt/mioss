@@ -133,6 +133,17 @@ def test_project_export_import_maps_characters(tmp_path):
     assert imported_page["character_ids"][0] == imported_characters[0]["id"]
 
 
+def test_list_projects_returns_thumbnail(tmp_path):
+    from backend.app.config import PROJECTS_DIR
+
+    conn = make_conn(tmp_path)
+    project = projects.create_project(conn, "缩略图测试", style_preset_id="test-style")
+    page = projects.add_page(conn, project["id"], {"summary": "第一页"})
+    projects.update_page(conn, page["id"], {"image_path": str(PROJECTS_DIR / "thumb.png"), "status": "done"})
+    listed = projects.list_projects(conn)[0]
+    assert listed["thumbnail_url"] == "/projects/thumb.png"
+
+
 def test_page_variants_lists_succeeded_jobs(tmp_path):
     conn = make_conn(tmp_path)
     project = projects.create_project(conn, "变体测试", style_preset_id="test-style")

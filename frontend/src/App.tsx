@@ -392,10 +392,16 @@ export default function App() {
             {projectsQuery.data?.map((item) => (
               <button
                 key={item.id}
-                className={`mb-1 block w-full px-2 py-1 text-left ${selectedProjectId === item.id ? "bg-white/10" : "hover:bg-white/5"}`}
+                className={`mb-1 flex w-full items-center gap-2 px-2 py-1 text-left ${selectedProjectId === item.id ? "bg-white/10" : "hover:bg-white/5"}`}
                 onClick={() => setSelectedProjectId(item.id)}
               >
-                {item.title} <span className="opacity-50">({item.page_count || 0})</span>
+                {item.thumbnail_url ? (
+                  <img src={item.thumbnail_url} alt={item.title} className="h-10 w-7 object-cover" />
+                ) : (
+                  <div className="h-10 w-7 border border-white/15" />
+                )}
+                <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                <span className="opacity-50">({item.page_count || 0})</span>
               </button>
             ))}
           </div>

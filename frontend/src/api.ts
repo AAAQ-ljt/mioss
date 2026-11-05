@@ -38,6 +38,7 @@ export type Project = {
   title: string;
   story: string;
   style_preset_id: string;
+  thumbnail_url?: string | null;
   pages?: Page[];
   page_count?: number;
 };

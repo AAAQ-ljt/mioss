@@ -72,13 +72,23 @@ def create_project(
 def list_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
-        SELECT p.*, COUNT(g.id) page_count
+        SELECT p.*, COUNT(g.id) page_count,
+          (
+            SELECT image_path FROM page
+            WHERE project_id = p.id AND image_path IS NOT NULL
+            ORDER BY order_no LIMIT 1
+          ) thumbnail_path
         FROM project p LEFT JOIN page g ON g.project_id = p.id
         GROUP BY p.id
         ORDER BY p.updated_at DESC
         """
     ).fetchall()
-    return [dict(row) for row in rows]
+    projects = []
+    for row in rows:
+        item = dict(row)
+        item["thumbnail_url"] = _image_url(item.pop("thumbnail_path", None))
+        projects.append(item)
+    return projects
 
 
 def get_project(conn: sqlite3.Connection, project_id: str) -> dict[str, Any] | None:
