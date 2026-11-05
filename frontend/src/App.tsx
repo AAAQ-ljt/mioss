@@ -32,6 +32,7 @@ export default function App() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [includeNsfw, setIncludeNsfw] = useState(false);
   const [gallerySort, setGallerySort] = useState<"order" | "time">("order");
+  const [galleryOpen, setGalleryOpen] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
   const [lastCompose, setLastCompose] = useState<ComposeResult | null>(null);
@@ -371,6 +372,9 @@ export default function App() {
           <p className="text-sm opacity-70">故事 → 分镜 → 提示词 → 出图 → 画廊</p>
         </div>
         <div className="mono text-sm">
+          <button className="mr-3 border border-white/20 px-3 py-1 text-sm disabled:opacity-40" onClick={() => setGalleryOpen(true)} disabled={!selectedProjectId}>
+            打开画廊
+          </button>
           <span className={healthQuery.data?.comfy.ok ? "text-emerald-300" : "accent"}>
             ComfyUI {healthQuery.data?.comfy.ok ? "在线" : "离线"}
           </span>
@@ -874,6 +878,44 @@ export default function App() {
           {!jobsQuery.data?.length && <div className="opacity-40">暂无任务</div>}
         </div>
       </footer>
+
+      {galleryOpen && (
+        <div className="fixed inset-0 z-50 bg-black/85 p-6">
+          <div className="mx-auto flex h-full max-w-7xl flex-col">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold">画廊</h2>
+              <div className="flex gap-2">
+                <button
+                  className={`border px-3 py-1 text-sm ${gallerySort === "order" ? "border-[#e4572e] text-[#e4572e]" : "border-white/20"}`}
+                  onClick={() => setGallerySort("order")}
+                >
+                  内容
+                </button>
+                <button
+                  className={`border px-3 py-1 text-sm ${gallerySort === "time" ? "border-[#e4572e] text-[#e4572e]" : "border-white/20"}`}
+                  onClick={() => setGallerySort("time")}
+                >
+                  时间
+                </button>
+                <button className="border border-white/20 px-3 py-1 text-sm" onClick={() => setGalleryOpen(false)}>
+                  关闭
+                </button>
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto">
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-6">
+                {galleryPages.map((page) => (
+                  <a key={page.id} href={page.image_url || "#"} target="_blank" className="block border border-white/15">
+                    <img src={page.image_url || undefined} alt={`第 ${page.order_no} 页`} className="aspect-[9/16] w-full object-cover" />
+                    <div className="mono p-2 text-xs opacity-70">第 {page.order_no} 页</div>
+                  </a>
+                ))}
+                {!galleryPages.length && <div className="opacity-40">暂无已生成页面</div>}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {errorNotice && (
         <div className="fixed bottom-4 right-4 max-w-sm border border-[#e4572e] bg-black/85 p-3 text-sm text-[#ffb4a0]">
