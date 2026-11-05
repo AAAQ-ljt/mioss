@@ -151,6 +151,7 @@ hyulla（画师）, artist:ahemaru（画师）
 MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务逻辑。
 
 - `codex_search(query, category_path?, include_artist_only=false, include_nsfw=false, limit=20)`
+- `codex_suggest(query, limit=20)`
 - `codex_get(entry_id)`
 - `project_create(title)` / `project_list()` / `project_get(project_id)` / `project_update(project_id, patch)` / `project_delete(project_id)`
 - `project_export(project_id)` / `project_import(payload)`

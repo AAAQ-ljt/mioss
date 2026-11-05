@@ -95,6 +95,12 @@ export default function App() {
     queryFn: () => api<StylePreset[]>("/api/style-presets"),
   });
 
+  const suggestionsQuery = useQuery({
+    queryKey: ["codex-suggest", query],
+    queryFn: () => api<{ tag: string; count: number }[]>(`/api/codex/suggest?q=${encodeURIComponent(query)}&limit=20`),
+    enabled: query.trim().length > 0,
+  });
+
   const codexQuery = useQuery({
     queryKey: ["codex", query, codexFilter, categoryFilter, includeNsfw],
     queryFn: () =>
@@ -845,8 +851,14 @@ export default function App() {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="搜索法典 tag / 中文"
+              list="tag-suggestions"
             />
           </div>
+          <datalist id="tag-suggestions">
+            {suggestionsQuery.data?.map((item) => (
+              <option key={item.tag} value={item.tag} />
+            ))}
+          </datalist>
           <label className="mb-3 flex items-center gap-2 text-xs opacity-70">
             <input type="checkbox" checked={includeNsfw} onChange={(event) => setIncludeNsfw(event.target.checked)} />
             显示 R18（本地个人使用）

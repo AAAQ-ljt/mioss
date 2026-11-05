@@ -45,6 +45,14 @@ def make_conn(tmp_path):
     return conn
 
 
+def test_suggest_tags_from_positive_and_chinese(tmp_path):
+    conn = make_conn(tmp_path)
+    conn.execute("INSERT INTO entry_tag(entry_id, tag, kind) VALUES ('suozhang-1', 'forest', 'positive')")
+    conn.commit()
+    assert codex.suggest_tags(conn, "for")[0]["tag"] == "forest"
+    assert codex.suggest_tags(conn, "森林")[0]["tag"] == "森林"
+
+
 def test_search_english_and_chinese(tmp_path):
     conn = make_conn(tmp_path)
     assert codex.search_entries(conn, "forest")[0]["id"] == "suozhang-1"

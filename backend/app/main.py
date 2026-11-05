@@ -71,6 +71,11 @@ def categories(codex_id: str = Query(alias="codex_id"), conn: sqlite3.Connection
     return codex.categories(conn, codex_id)
 
 
+@app.get("/api/codex/suggest")
+def suggest_tags(q: str, limit: int = 20, conn: sqlite3.Connection = Depends(get_conn)):
+    return codex.suggest_tags(conn, q, limit=limit)
+
+
 @app.get("/api/codex/search")
 def search(
     q: str,

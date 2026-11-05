@@ -32,6 +32,40 @@ def get_entry(conn: sqlite3.Connection, entry_id: str) -> dict[str, Any] | None:
     return entry
 
 
+def suggest_tags(conn: sqlite3.Connection, query: str, limit: int = 20) -> list[dict[str, Any]]:
+    q = query.strip().lower()
+    if not q:
+        return []
+    rows = conn.execute(
+        """
+        SELECT tag, COUNT(*) count FROM entry_tag
+        WHERE kind = 'positive' AND tag LIKE ?
+        GROUP BY tag
+        ORDER BY count DESC, tag ASC
+        LIMIT ?
+        """,
+        (f"%{q}%", limit),
+    ).fetchall()
+    zh_rows = conn.execute(
+        """
+        SELECT zh AS tag, COUNT(*) count FROM tag_zh
+        WHERE zh LIKE ?
+        GROUP BY zh
+        ORDER BY count DESC, zh ASC
+        LIMIT ?
+        """,
+        (f"%{query.strip()}%", limit),
+    ).fetchall()
+    seen: set[str] = set()
+    suggestions = []
+    for row in [*rows, *zh_rows]:
+        tag = row["tag"]
+        if tag not in seen:
+            seen.add(tag)
+            suggestions.append({"tag": tag, "count": row["count"]})
+    return suggestions[:limit]
+
+
 def search_entries(
     conn: sqlite3.Connection,
     query: str,

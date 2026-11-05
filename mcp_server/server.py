@@ -38,6 +38,11 @@ def codex_search(
     return _request("GET", "/api/codex/search", params=params)
 
 
+@server.tool(description="根据中英文片段提示常用 tag。")
+def codex_suggest(query: str, limit: int = 20) -> Any:
+    return _request("GET", "/api/codex/suggest", params={"q": query, "limit": limit})
+
+
 @server.tool(description="按 entry_id 获取法典条目。")
 def codex_get(entry_id: str) -> Any:
     return _request("GET", f"/api/codex/entries/{entry_id}")
