@@ -87,6 +87,12 @@ export default function App() {
     enabled: query.trim().length > 0,
   });
 
+  const variantsQuery = useQuery({
+    queryKey: ["page-variants", selectedPageId],
+    queryFn: () => api<{ id: string; seed: number | null; output_path: string | null; image_url: string | null }[]>(`/api/pages/${selectedPageId}/variants`),
+    enabled: !!selectedPageId,
+  });
+
   const jobsQuery = useQuery({
     queryKey: ["jobs"],
     queryFn: () => api<Job[]>("/api/jobs?limit=20"),
@@ -242,7 +248,11 @@ export default function App() {
       setJobId(result.job_id);
       return result;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["project", selectedProjectId] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["project", selectedProjectId] });
+      queryClient.invalidateQueries({ queryKey: ["page-variants", selectedPageId] });
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    },
   });
 
   const importProject = useMutation({
@@ -278,6 +288,31 @@ export default function App() {
       setSelectedPageId(page.id);
       queryClient.invalidateQueries({ queryKey: ["project", selectedProjectId] });
     },
+  });
+
+  const generateVariants = useMutation({
+    mutationFn: async () => {
+      if (!draft) return;
+      await savePage.mutateAsync();
+      const results = await Promise.all([
+        api<{ job_id: string }>(`/api/pages/${draft.id}/generate`, { method: "POST", body: JSON.stringify({ seed: null }) }),
+        api<{ job_id: string }>(`/api/pages/${draft.id}/generate`, { method: "POST", body: JSON.stringify({ seed: null }) }),
+      ]);
+      return results;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["page-variants", selectedPageId] });
+      queryClient.invalidateQueries({ queryKey: ["project", selectedProjectId] });
+    },
+  });
+
+  const selectVariant = useMutation({
+    mutationFn: async (imagePath: string) => {
+      if (!draft) return;
+      return api<Page>(`/api/pages/${draft.id}`, { method: "PATCH", body: JSON.stringify({ image_path: imagePath, status: "done" }) });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["project", selectedProjectId] }),
   });
 
   const generateAll = useMutation({
@@ -689,6 +724,29 @@ export default function App() {
                   <img src={draft.image_url} alt="页面预览" className="w-full" />
                 </a>
               )}
+
+              <div className="border-t border-white/10 pt-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-sm opacity-70">变体</span>
+                  <button className="border border-white/20 px-3 py-1 text-sm disabled:opacity-40" onClick={() => generateVariants.mutate()} disabled={!draft.prompt || generateVariants.isPending}>
+                    生成两个变体
+                  </button>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {variantsQuery.data?.map((variant) => (
+                    <button
+                      key={variant.id}
+                      className="border border-white/15 disabled:opacity-40"
+                      disabled={!variant.output_path}
+                      onClick={() => variant.output_path && selectVariant.mutate(variant.output_path)}
+                    >
+                      {variant.image_url && <img src={variant.image_url} alt={`seed ${variant.seed}`} className="aspect-[9/16] w-full object-cover" />}
+                      <div className="mono p-1 text-xs opacity-70">seed {variant.seed ?? "-"}</div>
+                    </button>
+                  ))}
+                  {!variantsQuery.data?.length && <div className="opacity-40">暂无变体</div>}
+                </div>
+              </div>
             </div>
           )}
         </section>

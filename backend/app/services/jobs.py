@@ -11,7 +11,7 @@ from typing import Any
 
 from ..config import DB_PATH
 from .comfy import ComfyClient, build_graph
-from .projects import get_page, list_pages, project_dir
+from .projects import _image_url, get_page, list_pages, project_dir
 from .prompt import compose_for_page
 
 
@@ -84,6 +84,24 @@ def _poll(job_id: str, prompt_id: str, page_id: str, project_id: str, order_no: 
         conn.commit()
         conn.close()
         client.close()
+
+
+def list_page_variants(conn: sqlite3.Connection, page_id: str) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT id, seed, output_path, started_at, finished_at
+        FROM generation_job
+        WHERE page_id = ? AND status = 'succeeded' AND output_path IS NOT NULL
+        ORDER BY started_at DESC
+        """,
+        (page_id,),
+    ).fetchall()
+    variants = []
+    for row in rows:
+        item = dict(row)
+        item["image_url"] = _image_url(item.get("output_path"))
+        variants.append(item)
+    return variants
 
 
 def list_jobs(conn: sqlite3.Connection, limit: int = 50) -> list[dict[str, Any]]:

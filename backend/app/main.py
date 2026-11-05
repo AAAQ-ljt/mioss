@@ -285,6 +285,13 @@ def generate_project(project_id: str, body: dict[str, Any] | None = None, conn: 
     return jobs.generate_project(project_id, seed=body.get("seed"), profile=body.get("profile"))
 
 
+@app.get("/api/pages/{page_id}/variants")
+def page_variants(page_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    if not projects.get_page(conn, page_id):
+        raise HTTPException(status_code=404, detail="page not found")
+    return jobs.list_page_variants(conn, page_id)
+
+
 @app.get("/api/jobs")
 def list_jobs(limit: int = 50, conn: sqlite3.Connection = Depends(get_conn)):
     return jobs.list_jobs(conn, limit=limit)

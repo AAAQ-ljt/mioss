@@ -133,6 +133,27 @@ def test_project_export_import_maps_characters(tmp_path):
     assert imported_page["character_ids"][0] == imported_characters[0]["id"]
 
 
+def test_page_variants_lists_succeeded_jobs(tmp_path):
+    conn = make_conn(tmp_path)
+    project = projects.create_project(conn, "变体测试", style_preset_id="test-style")
+    page = projects.add_page(conn, project["id"], {"summary": "第一页"})
+    from backend.app.config import PROJECTS_DIR
+    from backend.app.services.jobs import list_page_variants
+
+    conn.execute(
+        """
+        INSERT INTO generation_job(id, page_id, prompt, negative, seed, workflow_profile, status, output_path, started_at)
+        VALUES ('job-1', ?, 'p', 'n', 1, '{}', 'succeeded', ?, datetime('now'))
+        """,
+        (page["id"], str(PROJECTS_DIR / "test-out.png")),
+    )
+    conn.commit()
+
+    variants = list_page_variants(conn, page["id"])
+    assert len(variants) == 1
+    assert variants[0]["image_url"].startswith("/projects/")
+
+
 def test_compose_for_page_saves_prompt(tmp_path):
     conn = make_conn(tmp_path)
     project = projects.create_project(conn, "自动补齐", style_preset_id="test-style")
