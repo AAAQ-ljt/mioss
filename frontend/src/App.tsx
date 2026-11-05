@@ -331,10 +331,14 @@ export default function App() {
         event.preventDefault();
         if (draft) savePage.mutate();
       }
+      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+        event.preventDefault();
+        if (draft?.prompt) generate.mutate();
+      }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [draft, savePage]);
+  }, [draft, generate, savePage]);
 
   async function exportCurrentProject() {
     if (!selectedProjectId) return;
