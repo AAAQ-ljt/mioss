@@ -234,6 +234,17 @@ export default function App() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["project", selectedProjectId] }),
   });
 
+  const importProject = useMutation({
+    mutationFn: async (file: File) => {
+      const payload = JSON.parse(await file.text());
+      return api<Project>("/api/projects/import", { method: "POST", body: JSON.stringify(payload) });
+    },
+    onSuccess: (project) => {
+      setSelectedProjectId(project.id);
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+    },
+  });
+
   const deleteProject = useMutation({
     mutationFn: async () => {
       if (!window.confirm("确定删除当前项目及其页、角色和任务记录？")) return;
@@ -268,6 +279,18 @@ export default function App() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["project", selectedProjectId] }),
   });
 
+  async function exportCurrentProject() {
+    if (!selectedProjectId) return;
+    const payload = await api<unknown>(`/api/projects/${selectedProjectId}/export`);
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${selectedProjectId}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="min-h-screen">
       <header className="panel halftone mx-3 mt-3 flex items-center justify-between px-4 py-3">
@@ -298,6 +321,25 @@ export default function App() {
             <button className="border border-[#e4572e] px-3 py-1 text-[#e4572e]" onClick={() => createProject.mutate(projectTitle)}>
               新建
             </button>
+          </div>
+
+          <div className="mb-3 flex gap-2">
+            <button className="border border-white/20 px-3 py-1 text-sm disabled:opacity-40" onClick={exportCurrentProject} disabled={!selectedProjectId}>
+              导出
+            </button>
+            <label className="cursor-pointer border border-white/20 px-3 py-1 text-sm">
+              导入
+              <input
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) importProject.mutate(file);
+                  event.currentTarget.value = "";
+                }}
+              />
+            </label>
           </div>
 
           <div className="mb-3 max-h-40 overflow-auto">
