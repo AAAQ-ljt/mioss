@@ -33,6 +33,7 @@ export default function App() {
   const [includeNsfw, setIncludeNsfw] = useState(false);
   const [gallerySort, setGallerySort] = useState<"order" | "time">("order");
   const [jobId, setJobId] = useState<string | null>(null);
+  const [errorNotice, setErrorNotice] = useState<string | null>(null);
   const [lastCompose, setLastCompose] = useState<ComposeResult | null>(null);
 
   const healthQuery = useQuery({
@@ -339,6 +340,16 @@ export default function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [draft, generate, savePage]);
+
+  useEffect(() => {
+    function onError(event: Event) {
+      const detail = (event as CustomEvent<string>).detail;
+      setErrorNotice(detail);
+      window.setTimeout(() => setErrorNotice(null), 5000);
+    }
+    window.addEventListener("moss-error", onError);
+    return () => window.removeEventListener("moss-error", onError);
+  }, []);
 
   async function exportCurrentProject() {
     if (!selectedProjectId) return;
@@ -863,6 +874,12 @@ export default function App() {
           {!jobsQuery.data?.length && <div className="opacity-40">暂无任务</div>}
         </div>
       </footer>
+
+      {errorNotice && (
+        <div className="fixed bottom-4 right-4 max-w-sm border border-[#e4572e] bg-black/85 p-3 text-sm text-[#ffb4a0]">
+          {errorNotice}
+        </div>
+      )}
     </div>
   );
 }

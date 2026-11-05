@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MutationCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
@@ -11,6 +11,11 @@ const queryClient = new QueryClient({
       retry: 1,
     },
   },
+  mutationCache: new MutationCache({
+    onError: (error) => {
+      window.dispatchEvent(new CustomEvent("moss-error", { detail: String(error) }));
+    },
+  }),
 });
 
 createRoot(document.getElementById("root")!).render(
