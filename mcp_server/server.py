@@ -161,9 +161,9 @@ def prompt_compose(
     )
 
 
-@server.tool(description="生成一页图，返回 job_id。")
-def generate_page(page_id: str, seed: int | None = None, profile: dict[str, Any] | None = None) -> Any:
-    return _request("POST", f"/api/pages/{page_id}/generate", json={"seed": seed, "profile": profile})
+@server.tool(description="生成一页图，返回 job_id。可传 init_image_path 做图生图重绘。")
+def generate_page(page_id: str, seed: int | None = None, profile: dict[str, Any] | None = None, init_image_path: str | None = None) -> Any:
+    return _request("POST", f"/api/pages/{page_id}/generate", json={"seed": seed, "profile": profile, "init_image_path": init_image_path})
 
 
 @server.tool(description="按页序串行生成项目全部页面；已有提示词的页面才会生成。")

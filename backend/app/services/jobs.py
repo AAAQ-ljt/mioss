@@ -6,6 +6,7 @@ import sqlite3
 import threading
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 from ..config import DB_PATH
@@ -170,7 +171,7 @@ def generate_project(project_id: str, seed: int | None = None, profile: dict[str
     return {"project_id": project_id, "status": "started"}
 
 
-def submit_page(page_id: str, seed: int | None = None, profile: dict[str, Any] | None = None) -> str:
+def submit_page(page_id: str, seed: int | None = None, profile: dict[str, Any] | None = None, init_image_path: str | None = None) -> str:
     conn = _connect()
     try:
         page = get_page(conn, page_id)
@@ -186,6 +187,8 @@ def submit_page(page_id: str, seed: int | None = None, profile: dict[str, Any] |
         }
         client = ComfyClient()
         try:
+            if init_image_path:
+                merged_profile = {**merged_profile, "init_image": client.upload_image(Path(init_image_path)), "init_denoise": float((profile or {}).get("denoise", 0.55))}
             client.validate_profile(merged_profile)
             graph = build_graph(page["prompt"], page.get("negative") or "", resolved_seed, merged_profile)
             response = client.queue(graph)

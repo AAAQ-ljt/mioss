@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -40,7 +41,8 @@ DEFAULT_PROFILE: dict[str, Any] = {
 def build_graph(prompt: str, negative: str, seed: int, profile: dict[str, Any] | None = None) -> dict[str, Any]:
     merged = {**DEFAULT_PROFILE, **(profile or {})}
     spectrum = {**DEFAULT_PROFILE["spectrum"], **(merged.get("spectrum") or {})}
-    return {
+    init_image = merged.get("init_image")
+    graph: dict[str, Any] = {
         "28": {
             "class_type": "UNETLoader",
             "inputs": {"unet_name": merged["unet_name"], "weight_dtype": "default"},
@@ -53,14 +55,6 @@ def build_graph(prompt: str, negative: str, seed: int, profile: dict[str, Any] |
         "30": {"class_type": "SpectrumMOSSImageAdaptive", "inputs": {"model": ["28", 0], **spectrum}},
         "25": {"class_type": "CLIPTextEncode", "inputs": {"text": prompt, "clip": ["29", 0]}},
         "26": {"class_type": "CLIPTextEncode", "inputs": {"text": negative, "clip": ["29", 0]}},
-        "22": {
-            "class_type": "EmptyLatentImage",
-            "inputs": {
-                "width": int(merged["width"]),
-                "height": int(merged["height"]),
-                "batch_size": int(merged["batch_size"]),
-            },
-        },
         "16": {
             "class_type": "KSampler",
             "inputs": {
@@ -72,8 +66,8 @@ def build_graph(prompt: str, negative: str, seed: int, profile: dict[str, Any] |
                 "scheduler": merged["scheduler"],
                 "positive": ["25", 0],
                 "negative": ["26", 0],
-                "latent_image": ["22", 0],
-                "denoise": float(merged["denoise"]),
+                "latent_image": ["32", 0] if init_image else ["22", 0],
+                "denoise": float(merged.get("init_denoise", merged["denoise"])) if init_image else float(merged["denoise"]),
             },
         },
         "23": {"class_type": "VAEDecode", "inputs": {"samples": ["16", 0], "vae": ["27", 0]}},
@@ -82,6 +76,19 @@ def build_graph(prompt: str, negative: str, seed: int, profile: dict[str, Any] |
             "inputs": {"images": ["23", 0], "filename_prefix": merged["filename_prefix"]},
         },
     }
+    if init_image:
+        graph["31"] = {"class_type": "LoadImage", "inputs": {"image": init_image}}
+        graph["32"] = {"class_type": "VAEEncode", "inputs": {"pixels": ["31", 0], "vae": ["27", 0]}}
+    else:
+        graph["22"] = {
+            "class_type": "EmptyLatentImage",
+            "inputs": {
+                "width": int(merged["width"]),
+                "height": int(merged["height"]),
+                "batch_size": int(merged["batch_size"]),
+            },
+        }
+    return graph
 
 
 class ComfyClient:
@@ -142,6 +149,16 @@ class ComfyClient:
                 return history[prompt_id]
             time.sleep(1)
         raise TimeoutError(f"ComfyUI prompt did not finish: {prompt_id}")
+
+    def upload_image(self, path: Path) -> str:
+        with path.open("rb") as handle:
+            response = self.client.post(
+                f"{self.base_url}/upload/image",
+                files={"image": (path.name, handle, "image/png")},
+                data={"overwrite": "true"},
+            )
+        response.raise_for_status()
+        return response.json()["name"]
 
     def queue_status(self) -> dict[str, Any]:
         response = self.client.get(f"{self.base_url}/queue")

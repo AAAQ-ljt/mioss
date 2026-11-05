@@ -232,12 +232,12 @@ export default function App() {
   });
 
   const generate = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (initImagePath?: string | null) => {
       if (!draft) return;
       await savePage.mutateAsync();
       const result = await api<{ job_id: string }>(`/api/pages/${draft.id}/generate`, {
         method: "POST",
-        body: JSON.stringify({ seed: draft.seed }),
+        body: JSON.stringify({ seed: draft.seed, init_image_path: initImagePath }),
       });
       setJobId(result.job_id);
       return result;
@@ -660,6 +660,13 @@ export default function App() {
                 </button>
                 <button className="border border-[#e4572e] px-3 py-1 text-[#e4572e]" onClick={() => generate.mutate()}>
                   生成本页
+                </button>
+                <button
+                  className="border border-white/20 px-3 py-1 disabled:opacity-40"
+                  onClick={() => draft.image_path && generate.mutate(draft.image_path)}
+                  disabled={!draft.image_path}
+                >
+                  图生图重绘
                 </button>
               </div>
 

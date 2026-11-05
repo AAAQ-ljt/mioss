@@ -273,7 +273,7 @@ def gallery(project_id: str, sort: str = "order", conn: sqlite3.Connection = Dep
 @app.post("/api/pages/{page_id}/generate")
 def generate_page(page_id: str, body: dict[str, Any] | None = None):
     body = body or {}
-    job_id = jobs.submit_page(page_id, seed=body.get("seed"), profile=body.get("profile"))
+    job_id = jobs.submit_page(page_id, seed=body.get("seed"), profile=body.get("profile"), init_image_path=body.get("init_image_path"))
     return {"job_id": job_id}
 
 

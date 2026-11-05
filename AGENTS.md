@@ -226,6 +226,7 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - M3 管理增强已验证：项目删除、页面复制、页面重排、任务队列、缩略图本地缓存、提示词长度统计、法典筛选、Seed 随机、页级角色选择、多角色隔离和同步清理均已跑通。
 - M3 备份迁移已验证：项目导出/导入会创建新项目，并保留 refs、连续性、页序和角色选择映射。
 - M3 检索增强已验证：法典筛选支持按 codex 和 top-level category_path 过滤，前端分类下拉可用。
+- M3 图生图入口已验证：`init_image_path` 会上传到 ComfyUI 并用 `LoadImage -> VAEEncode -> KSampler` 做变体重绘，能保留版式。
 - 法典抓取已验证；`data/raw/` 和 `_scrape/` 有原始 JSON；数据库在 `data/moss.db`。
 - 本机可跑工作流为 14 节点单次 MOSS；ComfyUI 烟测成功，848×1488、seed 12345、约 90 秒出图。
 - 当前默认 profile 出图偏彩色电影感动漫；同 seed 校准显示 `manga-ink` 风格块能出多格黑白漫画页，自然语言也能出高质量单页。漫画项目默认应切到 `manga-ink`，封面/插画可保留 `cinematic-anime`。
