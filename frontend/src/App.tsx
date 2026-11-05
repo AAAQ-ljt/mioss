@@ -166,6 +166,7 @@ export default function App() {
           negative: draft.negative,
           refs: draft.refs,
           continuity: draft.continuity || {},
+          character_ids: draft.character_ids || [],
           seed: draft.seed,
         }),
       });
@@ -181,7 +182,7 @@ export default function App() {
         method: "POST",
         body: JSON.stringify({
           entry_ids: draft.refs,
-          character_ids: charactersQuery.data?.map((item) => item.id) || [],
+          character_ids: draft.character_ids || [],
           page_text: `${draft.summary} ${draft.layout_note}`.trim(),
           save: true,
         }),
@@ -474,6 +475,31 @@ export default function App() {
                   onChange={(event) => setDraft({ ...draft, layout_note: event.target.value })}
                 />
               </label>
+
+              <div className="mb-3">
+                <span className="mb-1 block text-sm opacity-70">本页角色</span>
+                <div className="flex flex-wrap gap-3 text-sm">
+                  {charactersQuery.data?.map((character) => (
+                    <label key={character.id} className="flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        checked={(draft.character_ids || []).includes(character.id)}
+                        onChange={(event) => {
+                          const current = draft.character_ids || [];
+                          setDraft({
+                            ...draft,
+                            character_ids: event.target.checked
+                              ? [...current, character.id]
+                              : current.filter((id) => id !== character.id),
+                          });
+                        }}
+                      />
+                      {character.name}
+                    </label>
+                  ))}
+                  {!charactersQuery.data?.length && <span className="opacity-40">暂无角色</span>}
+                </div>
+              </div>
 
               <div className="grid grid-cols-2 gap-2">
                 {[

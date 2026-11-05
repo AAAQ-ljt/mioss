@@ -111,6 +111,17 @@ def test_compose_prompt_uses_character_anchor(tmp_path):
     assert "silver hair, amber eyes" in result["positive"]
 
 
+def test_page_character_selection_controls_compose(tmp_path):
+    conn = make_conn(tmp_path)
+    project = projects.create_project(conn, "角色选择", style_preset_id="test-style")
+    luna = projects.upsert_character(conn, project["id"], {"name": "露娜", "anchor_tags": "silver hair"})
+    knight = projects.upsert_character(conn, project["id"], {"name": "骑士", "anchor_tags": "knight armor"})
+    page = projects.add_page(conn, project["id"], {"summary": "测试", "character_ids": [luna["id"]]}).copy()
+    result = prompt.compose_prompt(conn, style_preset_id="test-style", project_id=project["id"], character_ids=page["character_ids"])
+    assert "silver hair" in result["positive"]
+    assert "knight armor" not in result["positive"]
+
+
 def test_compose_prompt_includes_continuity(tmp_path):
     conn = make_conn(tmp_path)
     result = prompt.compose_prompt(

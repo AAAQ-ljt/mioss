@@ -18,6 +18,17 @@ def new_id() -> str:
     return uuid.uuid4().hex[:12]
 
 
+def _default_character_ids(conn: sqlite3.Connection, project_id: str) -> list[str]:
+    rows = conn.execute("SELECT id FROM characters WHERE project_id = ? ORDER BY name", (project_id,)).fetchall()
+    return [row["id"] for row in rows]
+
+
+def _page_character_ids(conn: sqlite3.Connection, page: dict[str, Any]) -> list[str]:
+    if page.get("character_ids_json") is None:
+        return _default_character_ids(conn, page["project_id"])
+    return json.loads(page.get("character_ids_json") or "[]")
+
+
 def _ref_details(conn: sqlite3.Connection, refs: list[str]) -> list[dict[str, Any]]:
     if not refs:
         return []
@@ -98,8 +109,8 @@ def replace_pages(conn: sqlite3.Connection, project_id: str, pages: list[dict[st
             """
             INSERT INTO page(
               id, project_id, chapter_id, order_no, summary, layout_note, prompt, negative,
-              seed, status, image_path, refs_json, continuity_json, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              seed, status, image_path, refs_json, continuity_json, character_ids_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 page_id,
@@ -115,6 +126,7 @@ def replace_pages(conn: sqlite3.Connection, project_id: str, pages: list[dict[st
                 page.get("image_path"),
                 json.dumps(refs, ensure_ascii=False),
                 json.dumps(page.get("continuity") or {}, ensure_ascii=False),
+                json.dumps(page["character_ids"] if "character_ids" in page else _default_character_ids(conn, project_id), ensure_ascii=False),
                 page.get("created_at") or now(),
                 now(),
             ),
@@ -137,8 +149,8 @@ def add_page(conn: sqlite3.Connection, project_id: str, page: dict[str, Any] | N
         """
         INSERT INTO page(
           id, project_id, chapter_id, order_no, summary, layout_note, prompt, negative,
-          seed, status, image_path, refs_json, continuity_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          seed, status, image_path, refs_json, continuity_json, character_ids_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             page_id,
@@ -154,6 +166,7 @@ def add_page(conn: sqlite3.Connection, project_id: str, page: dict[str, Any] | N
             page.get("image_path"),
             json.dumps(refs, ensure_ascii=False),
             json.dumps(page.get("continuity") or {}, ensure_ascii=False),
+            json.dumps(page["character_ids"] if "character_ids" in page else _default_character_ids(conn, project_id), ensure_ascii=False),
             page.get("created_at") or timestamp,
             timestamp,
         ),
@@ -174,6 +187,7 @@ def list_pages(conn: sqlite3.Connection, project_id: str) -> list[dict[str, Any]
         page["refs"] = json.loads(page.get("refs_json") or "[]")
         page["ref_details"] = _ref_details(conn, page["refs"])
         page["continuity"] = json.loads(page.get("continuity_json") or "{}")
+        page["character_ids"] = _page_character_ids(conn, page)
         page["image_url"] = _image_url(page.get("image_path"))
         pages.append(page)
     return pages
@@ -187,12 +201,13 @@ def get_page(conn: sqlite3.Connection, page_id: str) -> dict[str, Any] | None:
     page["refs"] = json.loads(page.get("refs_json") or "[]")
     page["ref_details"] = _ref_details(conn, page["refs"])
     page["continuity"] = json.loads(page.get("continuity_json") or "{}")
+    page["character_ids"] = _page_character_ids(conn, page)
     page["image_url"] = _image_url(page.get("image_path"))
     return page
 
 
 def update_page(conn: sqlite3.Connection, page_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
-    allowed = {"summary", "layout_note", "prompt", "negative", "seed", "status", "image_path", "refs", "continuity"}
+    allowed = {"summary", "layout_note", "prompt", "negative", "seed", "status", "image_path", "refs", "continuity", "character_ids"}
     fields = []
     params = []
     for key, value in patch.items():
@@ -203,6 +218,9 @@ def update_page(conn: sqlite3.Connection, page_id: str, patch: dict[str, Any]) -
             params.append(json.dumps(value, ensure_ascii=False))
         elif key == "continuity":
             fields.append("continuity_json = ?")
+            params.append(json.dumps(value, ensure_ascii=False))
+        elif key == "character_ids":
+            fields.append("character_ids_json = ?")
             params.append(json.dumps(value, ensure_ascii=False))
         else:
             fields.append(f"{key} = ?")
@@ -327,8 +345,8 @@ def duplicate_page(conn: sqlite3.Connection, page_id: str) -> dict[str, Any] | N
         """
         INSERT INTO page(
           id, project_id, chapter_id, order_no, summary, layout_note, prompt, negative,
-          seed, status, image_path, refs_json, continuity_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          seed, status, image_path, refs_json, continuity_json, character_ids_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             new_id_value,
@@ -344,6 +362,7 @@ def duplicate_page(conn: sqlite3.Connection, page_id: str) -> dict[str, Any] | N
             None,
             source["refs_json"],
             source["continuity_json"],
+            source["character_ids_json"],
             now(),
             now(),
         ),

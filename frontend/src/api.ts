@@ -15,6 +15,7 @@ export type Page = {
   refs: string[];
   ref_details: RefDetail[];
   continuity: Record<string, string>;
+  character_ids: string[];
   seed: number | null;
   status: string;
   image_path: string | null;
