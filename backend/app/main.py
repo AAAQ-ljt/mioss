@@ -47,6 +47,7 @@ def get_conn():
 @app.get("/api/health")
 def health(conn: sqlite3.Connection = Depends(get_conn)):
     release = conn.execute("SELECT value FROM setting WHERE key = 'release'").fetchone()
+    synced_at = conn.execute("SELECT value FROM setting WHERE key = 'synced_at'").fetchone()
     counts = conn.execute("SELECT COUNT(*) AS total, COALESCE(SUM(moss_usable), 0) AS usable FROM entry").fetchone()
     client = comfy.ComfyClient()
     comfy_health = client.health()
@@ -54,6 +55,7 @@ def health(conn: sqlite3.Connection = Depends(get_conn)):
     return {
         "ok": True,
         "release": release["value"] if release else None,
+        "synced_at": synced_at["value"] if synced_at else None,
         "entries": dict(counts),
         "comfy": comfy_health,
     }

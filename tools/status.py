@@ -18,6 +18,7 @@ def scalar(conn, sql: str, params: tuple = ()) -> object:
 def main() -> None:
     conn = connect()
     print("release:", scalar(conn, "SELECT value FROM setting WHERE key = 'release'"))
+    print("synced_at:", scalar(conn, "SELECT value FROM setting WHERE key = 'synced_at'"))
     print("entries:", scalar(conn, "SELECT COUNT(*) FROM entry"), "usable:", scalar(conn, "SELECT COALESCE(SUM(moss_usable),0) FROM entry"))
     print("projects:", scalar(conn, "SELECT COUNT(*) FROM project"), "pages:", scalar(conn, "SELECT COUNT(*) FROM page"))
     print("jobs:")
