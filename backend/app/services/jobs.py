@@ -235,6 +235,9 @@ def submit_page(page_id: str, seed: int | None = None, profile: dict[str, Any] |
         if not page:
             raise KeyError(f"page not found: {page_id}")
         if not page.get("prompt"):
+            compose_for_page(conn, page_id, save=True)
+            page = get_page(conn, page_id) or page
+        if not page.get("prompt"):
             raise ValueError("page prompt is empty")
 
         resolved_seed = int(seed if seed is not None else page.get("seed") or random.randint(1, 2**53))
