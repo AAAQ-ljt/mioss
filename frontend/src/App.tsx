@@ -352,6 +352,15 @@ export default function App() {
     return () => window.removeEventListener("moss-error", onError);
   }, []);
 
+  useEffect(() => {
+    if (!galleryOpen) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setGalleryOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [galleryOpen]);
+
   async function exportCurrentProject() {
     if (!selectedProjectId) return;
     const payload = await api<unknown>(`/api/projects/${selectedProjectId}/export`);
