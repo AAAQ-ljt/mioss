@@ -224,7 +224,8 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - 本机可跑工作流为 14 节点单次 MOSS；ComfyUI 烟测成功，848×1488、seed 12345、约 90 秒出图。
 - 当前默认 profile 出图偏彩色电影感动漫；同 seed 校准显示 `manga-ink` 风格块能出多格黑白漫画页，自然语言也能出高质量单页。漫画项目默认应切到 `manga-ink`，封面/插画可保留 `cinematic-anime`。
 - MOSS 普通 tag 可用、画师标签和权重语法无效（用户实测）。
-- GitHub 远程：`https://github.com/AAAQ-ljt/mioss.git`（HTTPS 凭证可用；SSH 22 端口被挡）。
+- GitHub 远程：`https://github.com/AAAQ-ljt/mioss.git`（HTTPS 凭证可用；SSH 22 端口被挡）。M0-M2 已推送，提交 `2daf3dd`。
+- 本机 push 若被系统代理干扰，用：`NO_PROXY=github.com HTTP_PROXY= HTTPS_PROXY= git -c http.sslBackend=schannel push origin main`。
 - 旧项目 `NovelAI-Tag-local-v1.5.0/` 只读，不参与新项目运行。
 
 待定：
