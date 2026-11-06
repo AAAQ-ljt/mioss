@@ -24,9 +24,34 @@ def make_conn(tmp_path):
         """
     )
     conn.execute("INSERT INTO tag_zh(tag, zh, codex_id) VALUES ('forest', '森林', 'suozhang')")
+    conn.execute("UPDATE entry SET category_path_text = '各式场景' WHERE id = 'suozhang-1'")
     conn.execute("INSERT OR REPLACE INTO style_preset(id, name, tags) VALUES ('manga-ink', '黑白网点漫画', 'black and white manga')")
     conn.commit()
     return conn
+
+
+def test_api_studio_pages(tmp_path):
+    conn = make_conn(tmp_path)
+    app.dependency_overrides[get_conn] = lambda: conn
+    try:
+        with TestClient(app) as client:
+            relay = client.post("/api/relay", json={"content": "forest, fog", "format": "sd", "source_title": "森林"}).json()
+            assert client.get("/api/relay").json()[0]["id"] == relay["id"]
+            assert client.delete(f"/api/relay/{relay['id']}").status_code == 200
+
+            preset = client.post("/api/presets", json={"name": "露娜", "kind": "character", "positive": "silver hair"}).json()
+            assert client.get("/api/presets").json()[0]["name"] == "露娜"
+            assert client.delete(f"/api/presets/{preset['id']}").status_code == 200
+
+            project = client.post("/api/projects", json={"title": "故事项目"}).json()
+            story = client.put(
+                f"/api/projects/{project['id']}/story",
+                json={"title": "雾林", "markdown": "# 第一章\n内容\n## 场景\n内容"},
+            ).json()
+            assert [chapter["title"] for chapter in story["chapters"]] == ["第一章", "场景"]
+            assert client.get(f"/api/projects/{project['id']}/story").json()["title"] == "雾林"
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_api_project_flow(tmp_path):

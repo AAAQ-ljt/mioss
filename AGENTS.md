@@ -35,6 +35,10 @@
 | 词库范围 | 全部法典分批导入；分类与网站一致；按 release 增量更新 |
 | 提示词 | tag-first；清洗 NAI 语法；不做强制翻译 |
 | 画廊 | 一个项目（漫画）一个文件夹；生成图按时间或内容排序浏览；不做复杂排版/导出 |
+| 页面结构 | 5 个路由：/ 检索、/relay 中转站、/presets 预设、/story 故事、/board 分镜台；深色漫画编辑部后台布局 |
+| SD 权重 | `{}` 每层 ×1.05，`[]` 每层 ×0.95，数字权重精确转 `(tag:权重)`；负权重进负面提示词 |
+| 中转站 | 首页复制即入中转站；可组合、删除、清空、再复制 |
+| 故事 | 一个项目绑定一本 Markdown 小说；标题自动分章 |
 | 参考项目 | `NovelAI-Tag-local-v1.5.0/` 只读；可参考其 tools 思路，禁止修改与依赖 |
 
 ## 3. 目录约定
@@ -72,7 +76,7 @@ https://novelai.quicktagcloud.com/data/current.json
 - `current.json` 指向当前 release；不要硬编码 release id。2026-11-04 时为 `r-a6d5bdd0d0f55311867e`。
 - 下载后按 manifest 校验 sha256；缓存到 `data/raw/<release>/`。
 - 全量导入元数据；缩略图按需缓存到 `data/thumbs/`，UI 通过 `/api/codex/entries/{id}/thumbnail` 读取，不一次性拉几万张。
-- 分类完全照网站：保存 `tree` 和每个条目的 `path`，不另造主分类。
+- 分类完全照网站：保存 `tree`、每个条目的 `path` 和 `category_path_text`（形如 `A / B / C`）；搜索用完整路径精确匹配或子路径前缀，避免同名分类串结果。
 - `tag_zh/*.json` 的 `d` 映射用于中文搜索（英文 tag → 中文）。
 - 同步按 contentHash / release 增量；记录 `synced_at`。
 - 法典数量与规模（当前）：约 15 本、6.2 万条（含 R18）；所长的非 R18 为 6043 + 304 条。
@@ -131,9 +135,12 @@ hyulla（画师）, artist:ahemaru（画师）
 第一版表：
 
 - `codex(id, title, author, version, type, nsfw, source_release, content_hash, tree_json, synced_at)`
-- `entry(id, codex_id, title, category_path_json, tags_raw, tags_positive, tags_negative, negative_raw, note, image, image_width, image_height, original, asset_rev, rating, is_new, moss_usable, artist_ratio, extra_json)`
+- `entry(id, codex_id, title, category_path_json, category_path_text, tags_raw, tags_positive, tags_negative, negative_raw, note, image, image_width, image_height, original, asset_rev, rating, is_new, moss_usable, artist_ratio, extra_json)`
 - `entry_tag(entry_id, tag, kind)`（普通 tag / 画师 / 质量词）
 - `tag_zh(tag, zh, codex_id)`
+- `relay_item(id, content, format, source_entry_id, source_title, created_at)`
+- `prompt_preset(id, name, kind, positive, negative, notes, seed, profile_json, created_at, updated_at)`
+- `story_doc(project_id, title, markdown, updated_at)`
 - `project(id, title, story, style_preset_id, gallery_sort, created_at, updated_at)`
 - `chapter(id, project_id, title, order_no, summary)`
 - `page(id, chapter_id, order_no, summary, layout_note, prompt, negative, seed, status, image_path, created_at, updated_at)`
@@ -167,6 +174,9 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - `generate_project(project_id, seed?, profile?)`：按页序串行批量生成
 - `job_list(limit?)` / `job_status(job_id)` / `job_cancel(job_id)`
 - `schema_get()`：给外部 AI 的项目/分镜 JSON schema 和用法说明
+- `relay_list(limit?)` / `relay_add(...)` / `relay_delete(id)` / `relay_clear()`
+- `preset_list()` / `preset_upsert(preset)` / `preset_delete(id)`
+- `story_get(project_id)` / `story_save(project_id, title, markdown)`
 
 外部 AI 必须先检索、再引用真实 entry_id；项目端负责校验，不能信任 AI 编造的 id。
 
@@ -188,8 +198,8 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 
 - 中文界面，英文 tag 保留原文；桌面优先，最小 1280 宽。
 - 视觉方向：漫画编辑部，不是通用 AI 后台。墨黑底、纸白画布、朱红强调色；细网格/网点纹理；故事正文用衬线中文字体，tag 用等宽字体；不要紫色渐变/玻璃拟态。
-- 布局：左侧故事/章节/页/角色/风格圣经；中间页卡片与页面预览；右侧法典抽屉与提示词栈；底部生成队列。
-- 顶部五步：故事 → 分镜 → 提示词 → 出图 → 画廊。
+- 布局：左侧固定导航（检索 / 中转站 / 预设 / 故事 / 分镜台）；顶部项目、法典、格式切换；内容区独立滚动。
+- 首页检索：分类树、图片瀑布流、右侧详情；复制支持 NAI / MOSS / SD 权重三种格式，复制即入中转站。
 - 页面详情必须展示：最终正向、负向、选中的法典条目、被过滤的 tag 及原因、seed、状态。
 - 关键交互：法典拖拽入栈、锁风格/角色、同 seed 重跑、A/B 对比、画廊按时间/内容切换、页序上下移动、删除页、点图查看。
 
@@ -199,6 +209,7 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - **M1**：项目/章节/页数据模型；手动页编辑；提示词编译；单页出图 + 队列/历史 + 项目画廊。
 - **M2**：MCP 完整闭环（分镜保存 → 选词 → 出图）；角色圣经；连续性台账；批量生成。
 - **M3**：画廊完善（时间/内容排序、项目文件夹管理）；模型 profile 校准；参考图一致性；更多风格预设。
+- **M4**：五路由后台重构；分类完整路径；SD 权重转换；中转站、预设库、故事 Markdown、分镜台整合。
 
 ## 11. 智能体工作规则
 
@@ -220,7 +231,7 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 
 当前状态：
 
-- M0 已完成：全量法典同步 61979 条，MOSS 可用 37385 条；`sanitize_tags()` 金标测试通过；FastAPI + React 骨架可运行；MCP 已注册 29 个工具。
+- M0 已完成：全量法典同步 61979 条，MOSS 可用 37385 条；`sanitize_tags()` 金标测试通过；FastAPI + React 骨架可运行；MCP 已注册 38 个工具。
 - M1 基础闭环已验证：项目 → 角色锚点 → 页 refs → 编译提示词 → 生成 9:16 黑白多格漫画页，产物按项目文件夹归档。
 - M2 已验证：页面连续性台账、批量串行生成、前端连续性/批量控件可用；两页串行生成成功，页序和黑白漫画风格稳定。
 - M2 真实短篇验证：已用项目 API 生成 4 页《第一页·雾林考核》，角色锚点、地点/时间/服装/情绪台账和页序产物均正常。
@@ -232,6 +243,7 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - M3 稳定性增强：后端启动会恢复 queued/running 任务，能从 ComfyUI history 找回产物；找不到的标记 failed，避免 UI 卡住。
 - M3 易用性增强：单页生成也会自动补齐空提示词；全局 mutation 错误 toast；Ctrl+Enter 生成当前页；health/status 显示最近同步时间。
 - M3 词库导出：`tools/export_prompts.py` 可导出 MOSS 可用、默认排除 R18 和画师词典的 JSONL/CSV 词库。
+- M4 已完成：五路由后台（检索/中转站/预设/故事/分镜台）；分类按完整路径过滤；NAI/MOSS/SD 三种复制格式；复制即入中转站；预设库与分镜台应用；项目绑定 Markdown 小说与章节解析。
 - 法典抓取已验证；`data/raw/` 和 `_scrape/` 有原始 JSON；数据库在 `data/moss.db`。
 - 本机可跑工作流为 14 节点单次 MOSS；ComfyUI 烟测成功，848×1488、seed 12345、约 90 秒出图。
 - 当前默认 profile 出图偏彩色电影感动漫；同 seed 校准显示 `manga-ink` 风格块能出多格黑白漫画页，自然语言也能出高质量单页。漫画项目默认应切到 `manga-ink`，封面/插画可保留 `cinematic-anime`。

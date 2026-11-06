@@ -94,7 +94,7 @@ def build_graph(prompt: str, negative: str, seed: int, profile: dict[str, Any] |
 class ComfyClient:
     def __init__(self, base_url: str = COMFY_URL):
         self.base_url = base_url.rstrip("/")
-        self.client = httpx.Client(timeout=httpx.Timeout(30.0, read=120.0))
+        self.client = httpx.Client(timeout=httpx.Timeout(30.0, read=120.0), trust_env=False)
 
     def close(self) -> None:
         self.client.close()

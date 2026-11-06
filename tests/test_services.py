@@ -28,6 +28,8 @@ def make_conn(tmp_path):
         """
     )
     conn.execute("INSERT INTO tag_zh(tag, zh, codex_id) VALUES ('forest', '森林', 'suozhang')")
+    conn.execute("UPDATE entry SET category_path_text = '各式场景' WHERE id = 'suozhang-1'")
+    conn.execute("UPDATE entry SET category_path_text = '编纂者杂项' WHERE id = 'suozhang-2'")
     conn.execute(
         """
         INSERT INTO codex(id, title, nsfw, entry_count, tree_json, synced_at)

@@ -34,7 +34,7 @@ def ensure_thumbnail(conn: sqlite3.Connection, entry_id: str) -> tuple[dict | No
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     try:
-        with httpx.Client(timeout=httpx.Timeout(30.0, read=120.0), follow_redirects=True) as client:
+        with httpx.Client(timeout=httpx.Timeout(30.0, read=120.0), follow_redirects=True, trust_env=False) as client:
             response = client.get(entry["image_url"])
             response.raise_for_status()
             tmp.write_bytes(response.content)

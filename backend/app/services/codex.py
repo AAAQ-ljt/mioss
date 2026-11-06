@@ -5,6 +5,8 @@ import re
 import sqlite3
 from typing import Any
 
+from .weights import decorate_entry
+
 CJK_RE = re.compile(r"[\u3400-\u9fff\u3040-\u30ff]")
 
 
@@ -29,7 +31,7 @@ def get_entry(conn: sqlite3.Connection, entry_id: str) -> dict[str, Any] | None:
         return None
     entry = dict(row)
     entry["category_path"] = json.loads(entry.get("category_path_json") or "[]")
-    return entry
+    return decorate_entry(entry)
 
 
 def suggest_tags(conn: sqlite3.Connection, query: str, limit: int = 20) -> list[dict[str, Any]]:
@@ -90,8 +92,8 @@ def search_entries(
         clauses.append("e.codex_id = ?")
         params.append(codex_id)
     if category_path:
-        clauses.append("e.category_path_json LIKE ?")
-        params.append(f'%"{category_path}"%')
+        clauses.append("(e.category_path_text = ? OR e.category_path_text LIKE ?)")
+        params.extend([category_path, f"{category_path} / %"])
 
     broad: list[str] = [
         "LOWER(e.title) LIKE ?",
@@ -138,4 +140,4 @@ def search_entries(
         scored.append((score, row))
 
     scored.sort(key=lambda item: item[0], reverse=True)
-    return [item[1] for item in scored[:limit]]
+    return [decorate_entry(item[1]) for item in scored[:limit]]

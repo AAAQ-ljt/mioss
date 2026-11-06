@@ -32,3 +32,45 @@ body {
   background-image: radial-gradient(rgba(243, 239, 230, 0.12) 1px, transparent 1px);
   background-size: 8px 8px;
 }
+
+.prose-manga {
+  color: #e9e2d6;
+  font-family: "Noto Serif SC", serif;
+  line-height: 1.9;
+}
+
+.prose-manga h1,
+.prose-manga h2,
+.prose-manga h3 {
+  margin: 1.2em 0 0.5em;
+  font-weight: 600;
+}
+
+.prose-manga h1 {
+  font-size: 1.6rem;
+}
+
+.prose-manga h2 {
+  font-size: 1.3rem;
+}
+
+.prose-manga h3 {
+  font-size: 1.1rem;
+}
+
+.prose-manga p {
+  margin: 0.8em 0;
+}
+
+.prose-manga blockquote {
+  border-left: 3px solid #e4572e;
+  margin: 1em 0;
+  padding-left: 1em;
+  opacity: 0.75;
+}
+
+.prose-manga hr {
+  border-color: rgba(243, 239, 230, 0.15);
+  margin: 1.5em 0;
+}
+

@@ -66,12 +66,45 @@ export type CodexEntry = {
   id: string;
   codex_id: string;
   title: string;
+  tags_raw: string;
   tags_positive: string;
   tags_negative: string;
+  prompt_sd_positive?: string;
+  prompt_sd_negative?: string;
   note: string | null;
   image_url: string | null;
   category_path_json: string;
   moss_usable: number;
+};
+
+export type RelayItem = {
+  id: string;
+  content: string;
+  format: string;
+  source_entry_id: string | null;
+  source_title: string | null;
+  created_at: string;
+};
+
+export type PromptPreset = {
+  id: string;
+  name: string;
+  kind: string;
+  positive: string;
+  negative: string;
+  notes: string;
+  seed: number | null;
+  profile_json: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StoryDoc = {
+  project_id: string;
+  title: string;
+  markdown: string;
+  updated_at: string | null;
+  chapters: { level: number; title: string; line: number }[];
 };
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {

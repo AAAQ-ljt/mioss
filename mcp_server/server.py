@@ -14,7 +14,7 @@ server = MCPServer(
 
 
 def _request(method: str, path: str, **kwargs: Any) -> Any:
-    with httpx.Client(timeout=httpx.Timeout(30.0, read=120.0)) as client:
+    with httpx.Client(timeout=httpx.Timeout(30.0, read=120.0), trust_env=False) as client:
         response = client.request(method, f"{API_BASE}{path}", **kwargs)
         if response.status_code >= 400:
             raise RuntimeError(f"{method} {path} failed: {response.status_code} {response.text[:1000]}")
@@ -86,6 +86,51 @@ def project_export(project_id: str) -> Any:
 @server.tool(description="导入项目 JSON，创建为新项目。")
 def project_import(payload: dict[str, Any]) -> Any:
     return _request("POST", "/api/projects/import", json=payload)
+
+
+@server.tool(description="列出 TAG 中转站内容。")
+def relay_list(limit: int = 200) -> Any:
+    return _request("GET", "/api/relay", params={"limit": limit})
+
+
+@server.tool(description="加入 TAG 中转站。")
+def relay_add(content: str, format: str = "plain", source_entry_id: str | None = None, source_title: str | None = None) -> Any:
+    return _request("POST", "/api/relay", json={"content": content, "format": format, "source_entry_id": source_entry_id, "source_title": source_title})
+
+
+@server.tool(description="删除中转站条目。")
+def relay_delete(item_id: str) -> Any:
+    return _request("DELETE", f"/api/relay/{item_id}")
+
+
+@server.tool(description="清空中转站。")
+def relay_clear() -> Any:
+    return _request("DELETE", "/api/relay")
+
+
+@server.tool(description="列出提示词预设。")
+def preset_list() -> Any:
+    return _request("GET", "/api/presets")
+
+
+@server.tool(description="新增或更新提示词预设。")
+def preset_upsert(preset: dict[str, Any]) -> Any:
+    return _request("POST", "/api/presets", json=preset)
+
+
+@server.tool(description="删除提示词预设。")
+def preset_delete(preset_id: str) -> Any:
+    return _request("DELETE", f"/api/presets/{preset_id}")
+
+
+@server.tool(description="读取项目绑定的 Markdown 小说。")
+def story_get(project_id: str) -> Any:
+    return _request("GET", f"/api/projects/{project_id}/story")
+
+
+@server.tool(description="保存项目绑定的 Markdown 小说。")
+def story_save(project_id: str, title: str, markdown: str) -> Any:
+    return _request("PUT", f"/api/projects/{project_id}/story", json={"title": title, "markdown": markdown})
 
 
 @server.tool(description="保存项目故事文本。")

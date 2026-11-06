@@ -11,7 +11,7 @@ import sqlite3
 
 from .config import ensure_dirs, FRONTEND_DIST, PROJECTS_DIR
 from .db import connect, migrate
-from .services import codex, comfy, jobs, projects, prompt, thumbs
+from .services import codex, comfy, jobs, projects, prompt, studio, thumbs
 
 
 @asynccontextmanager
@@ -321,5 +321,80 @@ def cancel_job(job_id: str):
     return job
 
 
+@app.get("/api/relay")
+def list_relay(limit: int = 200, conn: sqlite3.Connection = Depends(get_conn)):
+    return studio.list_relay_items(conn, limit=limit)
+
+
+@app.post("/api/relay")
+def add_relay(body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    content = body.get("content", "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="content is empty")
+    return studio.add_relay_item(
+        conn,
+        content=content,
+        format_name=body.get("format", "plain"),
+        source_entry_id=body.get("source_entry_id"),
+        source_title=body.get("source_title"),
+    )
+
+
+@app.delete("/api/relay/{item_id}")
+def delete_relay(item_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    if not studio.delete_relay_item(conn, item_id):
+        raise HTTPException(status_code=404, detail="relay item not found")
+    return {"deleted": item_id}
+
+
+@app.delete("/api/relay")
+def clear_relay(conn: sqlite3.Connection = Depends(get_conn)):
+    return {"deleted": studio.clear_relay_items(conn)}
+
+
+@app.get("/api/presets")
+def list_presets(conn: sqlite3.Connection = Depends(get_conn)):
+    return studio.list_presets(conn)
+
+
+@app.post("/api/presets")
+def upsert_preset(body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    return studio.upsert_preset(conn, body)
+
+
+@app.delete("/api/presets/{preset_id}")
+def delete_preset(preset_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    if not studio.delete_preset(conn, preset_id):
+        raise HTTPException(status_code=404, detail="preset not found")
+    return {"deleted": preset_id}
+
+
+@app.get("/api/projects/{project_id}/story")
+def get_story(project_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    if not projects.get_project(conn, project_id):
+        raise HTTPException(status_code=404, detail="project not found")
+    return studio.get_story(conn, project_id)
+
+
+@app.put("/api/projects/{project_id}/story")
+def save_story(project_id: str, body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    if not projects.get_project(conn, project_id):
+        raise HTTPException(status_code=404, detail="project not found")
+    return studio.save_story(
+        conn,
+        project_id,
+        title=body.get("title", ""),
+        markdown=body.get("markdown", ""),
+    )
+
+
 if FRONTEND_DIST.exists():
-    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
+    assets_dir = FRONTEND_DIST / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    @app.get("/{full_path:path}")
+    def spa_fallback(full_path: str):
+        if full_path == "api" or full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="not found")
+        return FileResponse(FRONTEND_DIST / "index.html")

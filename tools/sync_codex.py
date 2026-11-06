@@ -138,6 +138,7 @@ def import_entries(conn: sqlite3.Connection, codex_meta: dict[str, Any], data: d
                 codex_id,
                 entry.get("title"),
                 json.dumps(path, ensure_ascii=False),
+                " / ".join(str(part) for part in path),
                 tags_raw,
                 sanitized.positive_text,
                 sanitized.negative_text,
@@ -168,10 +169,10 @@ def import_entries(conn: sqlite3.Connection, codex_meta: dict[str, Any], data: d
     conn.executemany(
         """
         INSERT OR REPLACE INTO entry(
-          id, codex_id, title, category_path_json, tags_raw, tags_positive, tags_negative,
+          id, codex_id, title, category_path_json, category_path_text, tags_raw, tags_positive, tags_negative,
           negative_raw, note, image, image_url, image_width, image_height, original,
           asset_rev, rating, is_new, moss_usable, artist_ratio, raw_json, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         """,
         entry_rows,
     )
@@ -221,6 +222,7 @@ def main() -> None:
         headers={"User-Agent": "moss-tag-studio/0.1", "Referer": "https://novelai.quicktagcloud.com/"},
         timeout=httpx.Timeout(30.0, read=300.0),
         follow_redirects=True,
+        trust_env=False,
     ) as client:
         downloader = Downloader(client)
         current = downloader.json(f"{config.DATA_SOURCE_URL}current.json", config.DATA_DIR / "current.json")
