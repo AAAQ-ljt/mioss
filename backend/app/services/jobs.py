@@ -13,6 +13,7 @@ from ..config import DB_PATH
 from .comfy import ComfyClient, build_graph
 from .projects import _image_url, get_page, list_pages, project_dir
 from .prompt import compose_for_page
+from .studio import mark_presets_used
 
 
 def _connect() -> sqlite3.Connection:
@@ -242,13 +243,14 @@ def submit_page(page_id: str, seed: int | None = None, profile: dict[str, Any] |
 
         preset_rows = conn.execute(
             """
-            SELECT p.seed, p.profile_json
+            SELECT p.id, p.seed, p.profile_json
             FROM preset_binding b JOIN prompt_preset p ON p.id = b.preset_id
             WHERE b.project_id = ?
             ORDER BY b.order_no
             """,
             (page["project_id"],),
         ).fetchall()
+        mark_presets_used(conn, [row["id"] for row in preset_rows])
         preset_seed = next((row["seed"] for row in preset_rows if row["seed"] is not None), None)
         preset_profile: dict[str, Any] = {}
         for row in preset_rows:
