@@ -54,7 +54,7 @@ function CategoryTree({
 }
 
 export default function PromptLibraryPage() {
-  const [query, setQuery] = useState("森林");
+  const [query, setQuery] = useState("");
   const [codexFilter, setCodexFilter] = useState("suozhang");
   const [categoryPath, setCategoryPath] = useState("");
   const [format, setFormat] = useState<Format>("moss");
@@ -91,7 +91,7 @@ export default function PromptLibraryPage() {
           codexFilter ? `&codex_id=${encodeURIComponent(codexFilter)}` : ""
         }${categoryPath ? `&category_path=${encodeURIComponent(categoryPath)}` : ""}`,
       ),
-    enabled: query.trim().length > 0,
+    enabled: !!codexFilter || !!categoryPath,
   });
 
   const relayMutation = useMutation({
@@ -142,7 +142,7 @@ export default function PromptLibraryPage() {
           className="min-w-[240px] flex-1 border border-white/15 bg-black/20 px-3 py-2 outline-none"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="搜索中文 / 英文 tag"
+          placeholder="搜索中文 / 英文 tag（留空可浏览分类）"
         />
         <select
           className="bg-black/20 px-3 py-2 text-sm outline-none"

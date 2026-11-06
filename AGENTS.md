@@ -244,6 +244,7 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - M3 易用性增强：单页生成也会自动补齐空提示词；全局 mutation 错误 toast；Ctrl+Enter 生成当前页；health/status 显示最近同步时间。
 - M3 词库导出：`tools/export_prompts.py` 可导出 MOSS 可用、默认排除 R18 和画师词典的 JSONL/CSV 词库。
 - M4 已完成：五路由后台（检索/中转站/预设/故事/分镜台）；分类按完整路径过滤；NAI/MOSS/SD 三种复制格式；复制即入中转站；预设库与分镜台应用；项目绑定 Markdown 小说与章节解析。
+- M4 检索修复：关键词为空时可按法典/分类浏览，不再回到空结果；首页默认不预填“森林”。
 - 法典抓取已验证；`data/raw/` 和 `_scrape/` 有原始 JSON；数据库在 `data/moss.db`。
 - 本机可跑工作流为 14 节点单次 MOSS；ComfyUI 烟测成功，848×1488、seed 12345、约 90 秒出图。
 - 当前默认 profile 出图偏彩色电影感动漫；同 seed 校准显示 `manga-ink` 风格块能出多格黑白漫画页，自然语言也能出高质量单页。漫画项目默认应切到 `manga-ink`，封面/插画可保留 `cinematic-anime`。

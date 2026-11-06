@@ -62,6 +62,9 @@ def test_search_english_and_chinese(tmp_path):
     assert codex.search_entries(conn, "masterpiece") == []
     assert codex.search_entries(conn, "forest", category_path="各式场景")[0]["id"] == "suozhang-1"
     assert codex.search_entries(conn, "forest", category_path="不存在分类") == []
+    assert codex.search_entries(conn, "") == []
+    assert codex.search_entries(conn, "", codex_id="suozhang")[0]["id"] == "suozhang-1"
+    assert codex.search_entries(conn, "", category_path="各式场景")[0]["id"] == "suozhang-1"
     assert all(item["codex_id"] != "suozhang_r18" for item in codex.search_entries(conn, "forest"))
     assert any(item["codex_id"] == "suozhang_r18" for item in codex.search_entries(conn, "forest", include_nsfw=True))
 
