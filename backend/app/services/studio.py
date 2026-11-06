@@ -66,8 +66,11 @@ def upsert_preset(conn: sqlite3.Connection, preset: dict[str, Any]) -> dict[str,
     timestamp = _now()
     conn.execute(
         """
-        INSERT INTO prompt_preset(id, name, kind, positive, negative, notes, seed, profile_json, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO prompt_preset(
+          id, name, kind, positive, negative, notes, seed, profile_json,
+          preview_image, usage_count, version, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
           kind = excluded.kind,
@@ -76,6 +79,8 @@ def upsert_preset(conn: sqlite3.Connection, preset: dict[str, Any]) -> dict[str,
           notes = excluded.notes,
           seed = excluded.seed,
           profile_json = excluded.profile_json,
+          preview_image = excluded.preview_image,
+          version = prompt_preset.version + 1,
           updated_at = excluded.updated_at
         """,
         (
@@ -87,6 +92,7 @@ def upsert_preset(conn: sqlite3.Connection, preset: dict[str, Any]) -> dict[str,
             preset.get("notes", ""),
             preset.get("seed"),
             json.dumps(preset.get("profile") or {}, ensure_ascii=False),
+            preset.get("preview_image"),
             timestamp,
             timestamp,
         ),
@@ -94,6 +100,59 @@ def upsert_preset(conn: sqlite3.Connection, preset: dict[str, Any]) -> dict[str,
     conn.commit()
     row = conn.execute("SELECT * FROM prompt_preset WHERE id = ?", (preset_id,)).fetchone()
     return dict(row)
+
+
+def bind_preset(conn: sqlite3.Connection, project_id: str, preset_id: str) -> dict[str, Any]:
+    order_row = conn.execute(
+        "SELECT COALESCE(MAX(order_no), 0) + 1 AS next_order FROM preset_binding WHERE project_id = ?",
+        (project_id,),
+    ).fetchone()
+    binding_id = _id()
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO preset_binding(id, project_id, preset_id, order_no, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (binding_id, project_id, preset_id, order_row["next_order"], _now()),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT * FROM preset_binding WHERE project_id = ? AND preset_id = ?",
+        (project_id, preset_id),
+    ).fetchone()
+    return dict(row)
+
+
+def unbind_preset(conn: sqlite3.Connection, project_id: str, preset_id: str) -> bool:
+    cursor = conn.execute(
+        "DELETE FROM preset_binding WHERE project_id = ? AND preset_id = ?",
+        (project_id, preset_id),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def list_project_presets(conn: sqlite3.Connection, project_id: str) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT p.*, b.order_no binding_order
+        FROM preset_binding b JOIN prompt_preset p ON p.id = b.preset_id
+        WHERE b.project_id = ?
+        ORDER BY b.order_no, p.updated_at
+        """,
+        (project_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def mark_presets_used(conn: sqlite3.Connection, preset_ids: list[str]) -> None:
+    if not preset_ids:
+        return
+    conn.executemany(
+        "UPDATE prompt_preset SET usage_count = usage_count + 1 WHERE id = ?",
+        [(preset_id,) for preset_id in preset_ids],
+    )
+    conn.commit()
 
 
 def delete_preset(conn: sqlite3.Connection, preset_id: str) -> bool:

@@ -146,18 +146,51 @@ def compose_for_page(
         resolved_page_text = f"{page.get('summary') or ''} {page.get('layout_note') or ''}".strip()
 
     continuity_value = continuity_text(json.loads(page.get("continuity_json") or "{}"))
+
+    bound_presets = conn.execute(
+        """
+        SELECT p.*
+        FROM preset_binding b JOIN prompt_preset p ON p.id = b.preset_id
+        WHERE b.project_id = ?
+        ORDER BY b.order_no, p.updated_at
+        """,
+        (page["project_id"],),
+    ).fetchall()
+    preset_positive = ", ".join(row["positive"] for row in bound_presets if row["positive"])
+    preset_negative = ", ".join(row["negative"] for row in bound_presets if row["negative"])
+    suggested_seed = next((row["seed"] for row in bound_presets if row["seed"] is not None), None)
+    suggested_profile: dict[str, Any] = {}
+    for row in bound_presets:
+        try:
+            suggested_profile.update(json.loads(row["profile_json"] or "{}"))
+        except json.JSONDecodeError:
+            continue
+
+    combined_page_text = ", ".join(filter(None, [resolved_page_text, preset_positive]))
+    combined_negative = ", ".join(filter(None, [negative_text, preset_negative]))
     result = compose_prompt(
         conn,
         style_preset_id=style_preset_id,
         entry_ids=resolved_entry_ids,
-        page_text=resolved_page_text,
+        page_text=combined_page_text,
         character_text=character_text,
-        negative_text=negative_text,
+        negative_text=combined_negative,
         include_nsfw=include_nsfw,
         project_id=page["project_id"],
         character_ids=character_ids,
         continuity_text_value=continuity_value,
     )
+    result["presets"] = [
+        {
+            "id": row["id"],
+            "name": row["name"],
+            "kind": row["kind"],
+            "seed": row["seed"],
+        }
+        for row in bound_presets
+    ]
+    result["suggested_seed"] = suggested_seed
+    result["suggested_profile"] = suggested_profile
 
     if save:
         conn.execute(

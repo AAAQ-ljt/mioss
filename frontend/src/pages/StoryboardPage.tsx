@@ -81,6 +81,12 @@ export default function StoryboardPage() {
     queryFn: () => api<PromptPreset[]>("/api/presets"),
   });
 
+  const projectPresetsQuery = useQuery({
+    queryKey: ["project-presets", selectedProjectId],
+    queryFn: () => api<PromptPreset[]>(`/api/projects/${selectedProjectId}/presets`),
+    enabled: !!selectedProjectId,
+  });
+
   const suggestionsQuery = useQuery({
     queryKey: ["codex-suggest", query],
     queryFn: () => api<{ tag: string; count: number }[]>(`/api/codex/suggest?q=${encodeURIComponent(query)}&limit=20`),
@@ -383,6 +389,25 @@ export default function StoryboardPage() {
     anchor.click();
     URL.revokeObjectURL(url);
   }
+
+  const saveAsPreset = useMutation({
+    mutationFn: () => {
+      if (!draft) throw new Error("no page selected");
+      return api<PromptPreset>("/api/presets", {
+        method: "POST",
+        body: JSON.stringify({
+          name: `${project?.title || "项目"} 第${draft.order_no}页`,
+          kind: "combination",
+          positive: draft.prompt,
+          negative: draft.negative,
+          seed: draft.seed,
+          preview_image: draft.image_url,
+          notes: draft.summary,
+        }),
+      });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["prompt-presets"] }),
+  });
 
   function applyPromptPreset() {
     const preset = promptPresetsQuery.data?.find((item) => item.id === selectedPresetId);
@@ -766,7 +791,15 @@ export default function StoryboardPage() {
                 <button className="border border-white/20 px-3 py-1 text-sm disabled:opacity-40" onClick={applyPromptPreset} disabled={!selectedPresetId}>
                   应用预设
                 </button>
+                <button className="border border-white/20 px-3 py-1 text-sm disabled:opacity-40" onClick={() => saveAsPreset.mutate()} disabled={!draft.prompt}>
+                  保存当前页为配方
+                </button>
               </div>
+              {!!projectPresetsQuery.data?.length && (
+                <div className="mono text-xs opacity-60">
+                  项目配方：{projectPresetsQuery.data.map((preset) => preset.name).join(" / ")}
+                </div>
+              )}
 
               <div className="flex flex-wrap gap-2">
                 <button className="border border-white/20 px-3 py-1" onClick={() => savePage.mutate()}>

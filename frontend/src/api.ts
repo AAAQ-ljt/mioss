@@ -110,6 +110,10 @@ export type PromptPreset = {
   notes: string;
   seed: number | null;
   profile_json: string;
+  preview_image: string | null;
+  usage_count: number;
+  version: number;
+  binding_order?: number;
   created_at: string;
   updated_at: string;
 };

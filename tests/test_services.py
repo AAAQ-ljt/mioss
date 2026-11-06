@@ -1,7 +1,7 @@
 import sqlite3
 
 from backend.app.db import MIGRATIONS_DIR
-from backend.app.services import codex, projects, prompt
+from backend.app.services import codex, projects, prompt, studio
 
 
 def make_conn(tmp_path):
@@ -176,6 +176,24 @@ def test_page_variants_lists_succeeded_jobs(tmp_path):
     variants = list_page_variants(conn, page["id"])
     assert len(variants) == 1
     assert variants[0]["image_url"].startswith("/projects/")
+
+
+def test_bound_preset_enters_page_prompt(tmp_path):
+    conn = make_conn(tmp_path)
+    project = projects.create_project(conn, "配方项目", style_preset_id="test-style")
+    preset = studio.upsert_preset(
+        conn,
+        {"name": "黑白漫画配方", "kind": "style", "positive": "black and white manga", "negative": "watermark", "seed": 123},
+    )
+    studio.bind_preset(conn, project["id"], preset["id"])
+    assert studio.list_project_presets(conn, project["id"])[0]["name"] == "黑白漫画配方"
+
+    page = projects.add_page(conn, project["id"], {"summary": "雾林"})
+    result = prompt.compose_for_page(conn, page["id"])
+    assert "black and white manga" in result["positive"]
+    assert "watermark" in result["negative"]
+    assert result["suggested_seed"] == 123
+    assert result["presets"][0]["id"] == preset["id"]
 
 
 def test_compose_for_page_saves_prompt(tmp_path):

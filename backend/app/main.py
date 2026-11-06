@@ -424,6 +424,23 @@ def delete_preset(preset_id: str, conn: sqlite3.Connection = Depends(get_conn)):
     return {"deleted": preset_id}
 
 
+@app.get("/api/projects/{project_id}/presets")
+def list_project_presets(project_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    return studio.list_project_presets(conn, project_id)
+
+
+@app.post("/api/projects/{project_id}/presets/{preset_id}")
+def bind_preset(project_id: str, preset_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    return studio.bind_preset(conn, project_id, preset_id)
+
+
+@app.delete("/api/projects/{project_id}/presets/{preset_id}")
+def unbind_preset(project_id: str, preset_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    if not studio.unbind_preset(conn, project_id, preset_id):
+        raise HTTPException(status_code=404, detail="binding not found")
+    return {"deleted": preset_id}
+
+
 @app.get("/api/projects/{project_id}/story")
 def get_story(project_id: str, conn: sqlite3.Connection = Depends(get_conn)):
     if not projects.get_project(conn, project_id):

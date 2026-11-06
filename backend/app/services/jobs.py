@@ -240,8 +240,28 @@ def submit_page(page_id: str, seed: int | None = None, profile: dict[str, Any] |
         if not page.get("prompt"):
             raise ValueError("page prompt is empty")
 
-        resolved_seed = int(seed if seed is not None else page.get("seed") or random.randint(1, 2**53))
+        preset_rows = conn.execute(
+            """
+            SELECT p.seed, p.profile_json
+            FROM preset_binding b JOIN prompt_preset p ON p.id = b.preset_id
+            WHERE b.project_id = ?
+            ORDER BY b.order_no
+            """,
+            (page["project_id"],),
+        ).fetchall()
+        preset_seed = next((row["seed"] for row in preset_rows if row["seed"] is not None), None)
+        preset_profile: dict[str, Any] = {}
+        for row in preset_rows:
+            try:
+                preset_profile.update(json.loads(row["profile_json"] or "{}"))
+            except json.JSONDecodeError:
+                continue
+
+        resolved_seed = int(
+            seed if seed is not None else page.get("seed") if page.get("seed") is not None else preset_seed or random.randint(1, 2**53)
+        )
         merged_profile = {
+            **preset_profile,
             **(profile or {}),
             "filename_prefix": f"mioss/{page['project_id']}/page-{int(page['order_no']):03d}",
         }

@@ -96,6 +96,22 @@ export default function RelayPage() {
     onSuccess: (result) => setComposed(result),
   });
 
+  const savePreset = useMutation({
+    mutationFn: () => {
+      if (!composed) throw new Error("nothing composed");
+      return api("/api/presets", {
+        method: "POST",
+        body: JSON.stringify({
+          name: `收藏组合 ${new Date().toLocaleString("zh-CN")}`,
+          kind: "combination",
+          positive: composed.positive,
+          negative: composed.negative,
+          preview_image: selectedItems[0]?.image_url || null,
+        }),
+      });
+    },
+  });
+
   function toggle(entryId: string) {
     setSelectedIds((current) =>
       current.includes(entryId) ? current.filter((item) => item !== entryId) : [...current, entryId],
@@ -214,6 +230,13 @@ export default function RelayPage() {
               disabled={!composed?.positive}
             >
               复制组合
+            </button>
+            <button
+              className="border border-white/20 px-4 py-1 text-sm disabled:opacity-40"
+              onClick={() => savePreset.mutate()}
+              disabled={!composed?.positive || savePreset.isPending}
+            >
+              存为配方
             </button>
           </div>
         </div>

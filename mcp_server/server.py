@@ -155,6 +155,21 @@ def preset_delete(preset_id: str) -> Any:
     return _request("DELETE", f"/api/presets/{preset_id}")
 
 
+@server.tool(description="列出项目绑定的配方。")
+def project_presets(project_id: str) -> Any:
+    return _request("GET", f"/api/projects/{project_id}/presets")
+
+
+@server.tool(description="把配方绑定到项目，项目下所有页自动继承。")
+def preset_bind(project_id: str, preset_id: str) -> Any:
+    return _request("POST", f"/api/projects/{project_id}/presets/{preset_id}")
+
+
+@server.tool(description="解除项目配方绑定。")
+def preset_unbind(project_id: str, preset_id: str) -> Any:
+    return _request("DELETE", f"/api/projects/{project_id}/presets/{preset_id}")
+
+
 @server.tool(description="读取项目绑定的 Markdown 小说。")
 def story_get(project_id: str) -> Any:
     return _request("GET", f"/api/projects/{project_id}/story")

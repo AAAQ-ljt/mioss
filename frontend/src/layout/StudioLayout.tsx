@@ -3,7 +3,7 @@ import { NavLink, Outlet } from "react-router-dom";
 const items = [
   { to: "/", label: "提示词检索", hint: "法典分类与复制" },
   { to: "/relay", label: "TAG 中转站", hint: "组合与整理" },
-  { to: "/presets", label: "预设库", hint: "固定风格与角色" },
+  { to: "/presets", label: "配方库", hint: "风格 / 角色 / 锁定" },
   { to: "/story", label: "故事整理", hint: "小说 Markdown" },
   { to: "/board", label: "分镜台", hint: "页、角色、出图" },
 ];
