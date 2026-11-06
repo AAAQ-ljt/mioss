@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api, type Codex, type CodexEntry, type Job, type Page, type Project, type PromptPreset, type StylePreset } from "../api";
+import { api, type CodexEntry, type Job, type Page, type Project, type PromptPreset, type StylePreset } from "../api";
 
 type Health = {
   ok: boolean;
@@ -31,7 +31,6 @@ export default function StoryboardPage() {
   const [characterAnchor, setCharacterAnchor] = useState("1girl, silver hair, amber eyes, apprentice mage, cloak");
   const [draft, setDraft] = useState<Page | null>(null);
   const [query, setQuery] = useState("森林");
-  const [codexFilter, setCodexFilter] = useState("");
   const [libraryDomain, setLibraryDomain] = useState<"regular" | "nsfw" | "reference">("nsfw");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [gallerySort, setGallerySort] = useState<"order" | "time">("order");
@@ -67,11 +66,6 @@ export default function StoryboardPage() {
     enabled: !!selectedProjectId,
   });
 
-  const codexesQuery = useQuery({
-    queryKey: ["codexes"],
-    queryFn: () => api<Codex[]>("/api/codexes?include_nsfw=true"),
-  });
-
   const categoriesQuery = useQuery({
     queryKey: ["library-categories", libraryDomain],
     queryFn: () => api<LibraryCategory[]>(`/api/library/categories?domain=${libraryDomain}`),
@@ -94,12 +88,12 @@ export default function StoryboardPage() {
   });
 
   const codexQuery = useQuery({
-    queryKey: ["codex", query, codexFilter, libraryDomain, categoryFilter],
+    queryKey: ["codex", query, libraryDomain, categoryFilter],
     queryFn: () =>
       api<CodexEntry[]>(
         `/api/codex/search?q=${encodeURIComponent(query)}&domain=${libraryDomain}&include_nsfw=${
           libraryDomain !== "regular"
-        }&include_artist_only=${libraryDomain === "reference"}&limit=20${codexFilter ? `&codex_id=${encodeURIComponent(codexFilter)}` : ""}${
+        }&include_artist_only=${libraryDomain === "reference"}&limit=20${
           categoryFilter ? `&category_id=${encodeURIComponent(categoryFilter)}` : ""
         }`,
       ),
@@ -130,7 +124,7 @@ export default function StoryboardPage() {
 
   useEffect(() => {
     setCategoryFilter("");
-  }, [codexFilter, libraryDomain]);
+  }, [libraryDomain]);
 
   const project = projectQuery.data;
   const pages = project?.pages || [];
@@ -858,19 +852,6 @@ export default function StoryboardPage() {
               </button>
             ))}
           </div>
-
-          <select
-            className="mb-2 w-full bg-black/20 px-2 py-1 text-sm outline-none"
-            value={codexFilter}
-            onChange={(event) => setCodexFilter(event.target.value)}
-          >
-            <option value="">全部来源</option>
-            {codexesQuery.data?.map((codex) => (
-              <option key={codex.id} value={codex.id}>
-                {codex.title} ({codex.entry_count})
-              </option>
-            ))}
-          </select>
 
           <select
             className="mb-2 w-full bg-black/20 px-2 py-1 text-sm outline-none"

@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
-import { api, type Codex, type CodexEntry } from "../api";
+import { useEffect, useState } from "react";
+import { api, type CodexEntry } from "../api";
 import { copyText } from "../utils/clipboard";
 
 type Domain = "regular" | "nsfw" | "reference";
@@ -24,32 +24,10 @@ function categoryPathLabel(entry: CodexEntry): string {
 export default function PromptLibraryPage() {
   const [domain, setDomain] = useState<Domain>("nsfw");
   const [query, setQuery] = useState("");
-  const [codexFilter, setCodexFilter] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [format, setFormat] = useState<Format>("moss");
   const [selected, setSelected] = useState<CodexEntry | null>(null);
   const [notice, setNotice] = useState("");
-
-  const codexesQuery = useQuery({
-    queryKey: ["codexes-all"],
-    queryFn: () => api<Codex[]>("/api/codexes?include_nsfw=true"),
-  });
-
-  const sourceCodexes = useMemo(
-    () =>
-      (codexesQuery.data || []).filter((codex) =>
-        domain === "reference" ? codex.id.startsWith("artist_") : !codex.id.startsWith("artist_"),
-      ),
-    [codexesQuery.data, domain],
-  );
-
-  useEffect(() => {
-    if (!sourceCodexes.length) {
-      setCodexFilter("");
-      return;
-    }
-    if (!sourceCodexes.some((codex) => codex.id === codexFilter)) setCodexFilter("");
-  }, [sourceCodexes, codexFilter]);
 
   useEffect(() => {
     setCategoryId("");
@@ -61,12 +39,12 @@ export default function PromptLibraryPage() {
   });
 
   const searchQuery = useQuery({
-    queryKey: ["library-search", query, domain, codexFilter, categoryId],
+    queryKey: ["library-search", query, domain, categoryId],
     queryFn: () =>
       api<CodexEntry[]>(
         `/api/codex/search?q=${encodeURIComponent(query)}&domain=${domain}&limit=60&include_nsfw=${
           domain !== "regular"
-        }&include_artist_only=${domain === "reference"}${codexFilter ? `&codex_id=${encodeURIComponent(codexFilter)}` : ""}${
+        }&include_artist_only=${domain === "reference"}${
           categoryId ? `&category_id=${encodeURIComponent(categoryId)}` : ""
         }`,
       ),
@@ -105,17 +83,14 @@ export default function PromptLibraryPage() {
     window.setTimeout(() => setNotice(""), 2500);
   }
 
-  const codexTitle = useMemo(
-    () => sourceCodexes.find((codex) => codex.id === codexFilter)?.title || "全部来源",
-    [sourceCodexes, codexFilter],
-  );
+  const domainLabel = DOMAIN_TABS.find((tab) => tab.id === domain)?.label || "全部内容";
 
   return (
     <div className="flex h-screen flex-col">
       <header className="panel m-3 flex flex-wrap items-center gap-3 p-3">
         <div className="min-w-[180px]">
           <div className="text-lg font-semibold">提示词检索</div>
-          <div className="text-xs opacity-50">{codexTitle}</div>
+          <div className="text-xs opacity-50">{domainLabel} · 全库</div>
         </div>
         <div className="flex border border-white/15">
           {DOMAIN_TABS.map((tab) => (
@@ -134,18 +109,6 @@ export default function PromptLibraryPage() {
           onChange={(event) => setQuery(event.target.value)}
           placeholder="搜索中文 / 英文 tag（留空浏览当前分类）"
         />
-        <select
-          className="max-w-[260px] bg-black/20 px-3 py-2 text-sm outline-none"
-          value={codexFilter}
-          onChange={(event) => setCodexFilter(event.target.value)}
-        >
-          <option value="">全部来源</option>
-          {sourceCodexes.map((codex) => (
-            <option key={codex.id} value={codex.id}>
-              {codex.title} ({codex.entry_count})
-            </option>
-          ))}
-        </select>
         <div className="flex border border-white/15">
           {(["nai", "moss", "sd"] as Format[]).map((item) => (
             <button

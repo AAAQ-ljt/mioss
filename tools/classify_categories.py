@@ -23,6 +23,7 @@ def main() -> None:
     ).fetchall()
 
     counts = Counter()
+    valid_categories = {row["id"] for row in conn.execute("SELECT id FROM category_l1").fetchall()}
     updates = []
     category_rows = []
     for row in rows:
@@ -30,7 +31,11 @@ def main() -> None:
         domain, primary, labels = classify_entry(entry, row["nsfw"])
         counts[(domain, primary)] += 1
         updates.append((domain, primary, json.dumps(labels, ensure_ascii=False), row["id"]))
-        category_rows.extend((row["id"], label, 1 if label == primary else 0) for label in labels)
+        category_rows.extend(
+            (row["id"], label, 1 if label == primary else 0)
+            for label in labels
+            if label in valid_categories
+        )
 
     conn.executemany(
         "UPDATE entry SET domain = ?, cat_primary = ?, cat_labels_json = ? WHERE id = ?",

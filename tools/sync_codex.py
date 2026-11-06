@@ -21,6 +21,7 @@ from backend.app.services.sanitize import (  # noqa: E402
     normalize_tag_list,
     sanitize_tags,
 )
+from backend.app.services.classify import classify_entry  # noqa: E402
 
 
 def sha256_file(path: Path) -> str:
@@ -127,18 +128,31 @@ def import_entries(conn: sqlite3.Connection, codex_meta: dict[str, Any], data: d
 
     entry_rows = []
     tag_rows = []
+    category_rows = []
     for entry in entries:
         tags_raw = entry.get("tags") or ""
         sanitized = sanitize_tags(tags_raw, artists)
         negative_raw = normalize_tag_list(entry.get("negative") or "")
         path = entry.get("path") or []
+        path_json = json.dumps(path, ensure_ascii=False)
+        classification_entry = {
+            "codex_id": codex_id,
+            "rating": entry.get("rating"),
+            "category_path_json": path_json,
+            "category_path_text": " / ".join(str(part) for part in path),
+            "tags_positive": sanitized.positive_text,
+            "tags_raw": tags_raw,
+        }
+        domain, cat_primary, cat_labels = classify_entry(classification_entry, 1 if codex_meta.get("nsfw") else 0)
+        if cat_primary == "nsfw_extreme":
+            continue
         entry_rows.append(
             (
                 entry.get("id"),
                 codex_id,
                 entry.get("title"),
-                json.dumps(path, ensure_ascii=False),
-                " / ".join(str(part) for part in path),
+                path_json,
+                classification_entry["category_path_text"],
                 tags_raw,
                 sanitized.positive_text,
                 sanitized.negative_text,
@@ -154,9 +168,16 @@ def import_entries(conn: sqlite3.Connection, codex_meta: dict[str, Any], data: d
                 1 if entry.get("isNew") else 0,
                 1 if sanitized.moss_usable and not is_artist_codex else 0,
                 sanitized.artist_ratio,
+                domain,
+                cat_primary,
+                json.dumps(cat_labels, ensure_ascii=False),
                 json.dumps(entry, ensure_ascii=False),
             )
         )
+        for label in cat_labels:
+            if label == "nsfw_extreme":
+                continue
+            category_rows.append((entry.get("id"), label, 1 if label == cat_primary else 0))
         for tag in sanitized.positive:
             tag_rows.append((entry.get("id"), tag, "positive"))
         for tag in sanitized.negative:
@@ -171,17 +192,20 @@ def import_entries(conn: sqlite3.Connection, codex_meta: dict[str, Any], data: d
         INSERT OR REPLACE INTO entry(
           id, codex_id, title, category_path_json, category_path_text, tags_raw, tags_positive, tags_negative,
           negative_raw, note, image, image_url, image_width, image_height, original,
-          asset_rev, rating, is_new, moss_usable, artist_ratio, raw_json, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          asset_rev, rating, is_new, moss_usable, artist_ratio, domain, cat_primary, cat_labels_json, raw_json, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         """,
         entry_rows,
     )
     removed_ids = existing_ids - {row[0] for row in entry_rows}
     if removed_ids:
         conn.executemany("DELETE FROM entry_tag WHERE entry_id = ?", [(entry_id,) for entry_id in removed_ids])
+        conn.executemany("DELETE FROM entry_category WHERE entry_id = ?", [(entry_id,) for entry_id in removed_ids])
         conn.executemany("DELETE FROM entry WHERE id = ?", [(entry_id,) for entry_id in removed_ids])
     conn.execute("DELETE FROM entry_tag WHERE entry_id IN (SELECT id FROM entry WHERE codex_id = ?)", (codex_id,))
+    conn.execute("DELETE FROM entry_category WHERE entry_id IN (SELECT id FROM entry WHERE codex_id = ?)", (codex_id,))
     conn.executemany("INSERT OR REPLACE INTO entry_tag(entry_id, tag, kind) VALUES (?, ?, ?)", tag_rows)
+    conn.executemany("INSERT OR REPLACE INTO entry_category(entry_id, category_id, is_primary) VALUES (?, ?, ?)", category_rows)
     conn.commit()
     return len(entry_rows), len(tag_rows)
 
