@@ -17,20 +17,7 @@ type ComposeResult = {
   dropped: { id: string; reason: string }[];
 };
 
-type CategoryNode = {
-  name: string;
-  count: number;
-  children?: CategoryNode[];
-};
-
-type FlatCategory = { name: string; label: string; count: number };
-
-function flattenCategories(nodes: CategoryNode[] | undefined, depth = 0): FlatCategory[] {
-  return (nodes || []).flatMap((node) => [
-    { name: node.name, label: `${" ".repeat(depth * 2)}${node.name}`, count: node.count },
-    ...flattenCategories(node.children, depth + 1),
-  ]);
-}
+type LibraryCategory = { id: string; name: string; count: number };
 
 export default function StoryboardPage() {
   const queryClient = useQueryClient();
@@ -45,8 +32,8 @@ export default function StoryboardPage() {
   const [draft, setDraft] = useState<Page | null>(null);
   const [query, setQuery] = useState("森林");
   const [codexFilter, setCodexFilter] = useState("");
+  const [libraryDomain, setLibraryDomain] = useState<"regular" | "nsfw" | "reference">("nsfw");
   const [categoryFilter, setCategoryFilter] = useState("");
-  const [includeNsfw, setIncludeNsfw] = useState(true);
   const [gallerySort, setGallerySort] = useState<"order" | "time">("order");
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
@@ -86,9 +73,8 @@ export default function StoryboardPage() {
   });
 
   const categoriesQuery = useQuery({
-    queryKey: ["codex-categories", codexFilter],
-    queryFn: () => api<CategoryNode[]>(`/api/codex/categories?codex_id=${encodeURIComponent(codexFilter)}`),
-    enabled: !!codexFilter,
+    queryKey: ["library-categories", libraryDomain],
+    queryFn: () => api<LibraryCategory[]>(`/api/library/categories?domain=${libraryDomain}`),
   });
 
   const stylePresetsQuery = useQuery({
@@ -108,12 +94,16 @@ export default function StoryboardPage() {
   });
 
   const codexQuery = useQuery({
-    queryKey: ["codex", query, codexFilter, categoryFilter, includeNsfw],
+    queryKey: ["codex", query, codexFilter, libraryDomain, categoryFilter],
     queryFn: () =>
       api<CodexEntry[]>(
-        `/api/codex/search?q=${encodeURIComponent(query)}&include_nsfw=${includeNsfw}&limit=20${codexFilter ? `&codex_id=${encodeURIComponent(codexFilter)}` : ""}${categoryFilter ? `&category_path=${encodeURIComponent(categoryFilter)}` : ""}`,
+        `/api/codex/search?q=${encodeURIComponent(query)}&domain=${libraryDomain}&include_nsfw=${
+          libraryDomain !== "regular"
+        }&include_artist_only=${libraryDomain === "reference"}&limit=20${codexFilter ? `&codex_id=${encodeURIComponent(codexFilter)}` : ""}${
+          categoryFilter ? `&category_id=${encodeURIComponent(categoryFilter)}` : ""
+        }`,
       ),
-    enabled: query.trim().length > 0,
+    enabled: query.trim().length > 0 || !!categoryFilter,
   });
 
   const variantsQuery = useQuery({
@@ -140,7 +130,7 @@ export default function StoryboardPage() {
 
   useEffect(() => {
     setCategoryFilter("");
-  }, [codexFilter]);
+  }, [codexFilter, libraryDomain]);
 
   const project = projectQuery.data;
   const pages = project?.pages || [];
@@ -853,12 +843,28 @@ export default function StoryboardPage() {
         </section>
 
         <section className="panel overflow-hidden p-3">
+          <div className="mb-2 flex border border-white/15 text-xs">
+            {([
+              ["regular", "常规"],
+              ["nsfw", "NSFW"],
+              ["reference", "参考"],
+            ] as const).map(([value, label]) => (
+              <button
+                key={value}
+                className={`flex-1 px-2 py-2 ${libraryDomain === value ? "bg-[#e4572e] text-white" : "hover:bg-white/5"}`}
+                onClick={() => setLibraryDomain(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           <select
             className="mb-2 w-full bg-black/20 px-2 py-1 text-sm outline-none"
             value={codexFilter}
             onChange={(event) => setCodexFilter(event.target.value)}
           >
-            <option value="">全部法典</option>
+            <option value="">全部来源</option>
             {codexesQuery.data?.map((codex) => (
               <option key={codex.id} value={codex.id}>
                 {codex.title} ({codex.entry_count})
@@ -867,15 +873,14 @@ export default function StoryboardPage() {
           </select>
 
           <select
-            className="mb-2 w-full bg-black/20 px-2 py-1 text-sm outline-none disabled:opacity-40"
+            className="mb-2 w-full bg-black/20 px-2 py-1 text-sm outline-none"
             value={categoryFilter}
-            disabled={!codexFilter}
             onChange={(event) => setCategoryFilter(event.target.value)}
           >
             <option value="">全部分类</option>
-            {flattenCategories(categoriesQuery.data).map((category) => (
-              <option key={category.name} value={category.name}>
-                {category.label} ({category.count})
+            {categoriesQuery.data?.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name} ({category.count})
               </option>
             ))}
           </select>
@@ -894,10 +899,6 @@ export default function StoryboardPage() {
               <option key={item.tag} value={item.tag} />
             ))}
           </datalist>
-          <label className="mb-3 flex items-center gap-2 text-xs opacity-70">
-            <input type="checkbox" checked={includeNsfw} onChange={(event) => setIncludeNsfw(event.target.checked)} />
-            显示 R18（本地个人使用）
-          </label>
 
           <div className="max-h-[calc(100vh-170px)] overflow-auto">
             {codexQuery.data?.map((entry) => (

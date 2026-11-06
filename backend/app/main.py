@@ -76,11 +76,18 @@ def suggest_tags(q: str, limit: int = 20, conn: sqlite3.Connection = Depends(get
     return codex.suggest_tags(conn, q, limit=limit)
 
 
+@app.get("/api/library/categories")
+def library_categories(domain: str = "regular", conn: sqlite3.Connection = Depends(get_conn)):
+    return codex.library_categories(conn, domain)
+
+
 @app.get("/api/codex/search")
 def search(
     q: str,
     codex_id: str | None = None,
     category_path: str | None = None,
+    domain: str | None = None,
+    category_id: str | None = None,
     include_artist_only: bool = False,
     include_nsfw: bool = False,
     limit: int = 20,
@@ -91,6 +98,8 @@ def search(
         q,
         codex_id=codex_id,
         category_path=category_path,
+        domain=domain,
+        category_id=category_id,
         include_artist_only=include_artist_only,
         include_nsfw=include_nsfw,
         limit=limit,

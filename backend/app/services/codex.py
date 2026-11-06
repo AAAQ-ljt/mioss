@@ -10,6 +10,22 @@ from .weights import decorate_entry
 CJK_RE = re.compile(r"[\u3400-\u9fff\u3040-\u30ff]")
 
 
+def library_categories(conn: sqlite3.Connection, domain: str) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT c.id, c.name, c.order_no, COUNT(e.id) count
+        FROM category_l1 c
+        LEFT JOIN entry_category ec ON ec.category_id = c.id
+        LEFT JOIN entry e ON e.id = ec.entry_id AND e.domain = ?
+        WHERE c.domain = ?
+        GROUP BY c.id, c.name, c.order_no
+        ORDER BY c.order_no
+        """,
+        (domain, domain),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def list_codexes(conn: sqlite3.Connection, include_nsfw: bool = False) -> list[dict[str, Any]]:
     sql = "SELECT id, title, author, version, type, nsfw, entry_count FROM codex"
     if not include_nsfw:
@@ -73,6 +89,8 @@ def search_entries(
     query: str,
     codex_id: str | None = None,
     category_path: str | None = None,
+    domain: str | None = None,
+    category_id: str | None = None,
     include_artist_only: bool = False,
     include_nsfw: bool = False,
     limit: int = 20,
@@ -89,6 +107,12 @@ def search_entries(
     if codex_id:
         clauses.append("e.codex_id = ?")
         params.append(codex_id)
+    if domain:
+        clauses.append("e.domain = ?")
+        params.append(domain)
+    if category_id:
+        clauses.append("EXISTS (SELECT 1 FROM entry_category ec WHERE ec.entry_id = e.id AND ec.category_id = ?)")
+        params.append(category_id)
     if category_path:
         clauses.append("(e.category_path_text = ? OR e.category_path_text LIKE ?)")
         params.extend([category_path, f"{category_path} / %"])

@@ -152,13 +152,20 @@ hyulla（画师）, artist:ahemaru（画师）
 
 `gallery_sort` 取 `order`（内容/页序，默认）或 `time`（生成时间）。
 
+分类体系：
+- `entry.domain` 取 `regular` / `nsfw` / `reference`；`reference` 只放画师词典，不参与 MOSS 选词。
+- 常规 8 类：角色与人物、服装与造型、场景与背景、构图与镜头、风格与画风、动作与表情、道具与生物、漫画与杂项。
+- NSFW 8 类：单人、双人/多人、关系与取向、非人与异种、情趣服饰、场景与道具、R18G/重口、连续/差分/杂项。
+- 多标签：`entry.cat_primary` 主分类 + `cat_labels_json`/`entry_category` 多标签；旧 `category_path_text` 只作来源溯源。
+- 分类器：`tools/classify_categories.py`，按条目 rating 优先、codex.nsfw 和 nsfw 标签兜底，再用来源路径 + tag 关键词规则归类。
+
 约定：SQLite WAL；原生 SQL + 编号迁移；不用 ORM；中文搜索先用 `LIKE` + `tag_zh` 反查，不上向量库。
 
 ## 7. MCP 工具契约（第一版）
 
 MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务逻辑。
 
-- `codex_search(query, category_path?, include_artist_only=false, include_nsfw=false, limit=20)`
+- `codex_search(query, domain?, category_id?, codex_id?, include_artist_only=false, include_nsfw=true, limit=20)`
 - `codex_suggest(query, limit=20)`
 - `codex_get(entry_id)`
 - `project_create(title)` / `project_list()` / `project_get(project_id)` / `project_update(project_id, patch)` / `project_delete(project_id)`
@@ -247,6 +254,7 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - M4 已完成：五路由后台（检索/中转站/预设/故事/分镜台）；分类按完整路径过滤；NAI/MOSS/SD 三种复制格式；复制即入中转站；预设库与分镜台应用；项目绑定 Markdown 小说与章节解析。
 - M4 检索修复：关键词为空时可按法典/分类浏览，不再回到空结果；首页默认不预填“森林”。
 - M4 本地分级默认：检索页和分镜台默认 R18 开启，首页默认“全部法典”并随机混排；MCP 搜索/编译默认 `include_nsfw=true`。
+- M4 分类重构：已切到常规/NSFW/参考三库 + 各 8 类新分类；旧分类保留溯源；分类器统计为常规 17631、NSFW 20514、画师参考 23834。
 - 法典抓取已验证；`data/raw/` 和 `_scrape/` 有原始 JSON；数据库在 `data/moss.db`。
 - 本机可跑工作流为 14 节点单次 MOSS；ComfyUI 烟测成功，848×1488、seed 12345、约 90 秒出图。
 - 当前默认 profile 出图偏彩色电影感动漫；同 seed 校准显示 `manga-ink` 风格块能出多格黑白漫画页，自然语言也能出高质量单页。漫画项目默认应切到 `manga-ink`，封面/插画可保留 `cinematic-anime`。

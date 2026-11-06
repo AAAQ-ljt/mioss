@@ -26,6 +26,8 @@ def codex_search(
     query: str,
     codex_id: str | None = None,
     category_path: str | None = None,
+    domain: str | None = None,
+    category_id: str | None = None,
     include_artist_only: bool = False,
     include_nsfw: bool = True,
     limit: int = 20,
@@ -35,6 +37,10 @@ def codex_search(
         params["codex_id"] = codex_id
     if category_path:
         params["category_path"] = category_path
+    if domain:
+        params["domain"] = domain
+    if category_id:
+        params["category_id"] = category_id
     return _request("GET", "/api/codex/search", params=params)
 
 

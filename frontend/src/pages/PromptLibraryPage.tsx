@@ -3,8 +3,15 @@ import { useEffect, useMemo, useState } from "react";
 import { api, type Codex, type CodexEntry } from "../api";
 import { copyText } from "../utils/clipboard";
 
-type CategoryNode = { name: string; count: number; children?: CategoryNode[] };
+type Domain = "regular" | "nsfw" | "reference";
 type Format = "nai" | "moss" | "sd";
+type Category = { id: string; name: string; count: number; order_no: number };
+
+const DOMAIN_TABS: { id: Domain; label: string }[] = [
+  { id: "regular", label: "常规" },
+  { id: "nsfw", label: "NSFW 18+" },
+  { id: "reference", label: "画师参考" },
+];
 
 function categoryPathLabel(entry: CodexEntry): string {
   try {
@@ -14,51 +21,12 @@ function categoryPathLabel(entry: CodexEntry): string {
   }
 }
 
-function CategoryTree({
-  nodes,
-  parent,
-  onSelect,
-  active,
-}: {
-  nodes: CategoryNode[];
-  parent: string;
-  onSelect: (path: string) => void;
-  active: string;
-}) {
-  return (
-    <div className="text-sm">
-      {nodes.map((node) => {
-        const path = parent ? `${parent} / ${node.name}` : node.name;
-        const hasChildren = (node.children || []).length > 0;
-        return (
-          <div key={path} className="mb-0.5">
-            <button
-              className={`flex w-full items-center justify-between px-2 py-1 text-left ${
-                active === path ? "bg-[#e4572e]/15 text-[#ffb4a0]" : "hover:bg-white/5"
-              }`}
-              onClick={() => onSelect(active === path ? "" : path)}
-            >
-              <span className="truncate">{node.name}</span>
-              <span className="mono ml-2 text-xs opacity-40">{node.count}</span>
-            </button>
-            {hasChildren && (
-              <div className="ml-3 border-l border-white/10 pl-1">
-                <CategoryTree nodes={node.children || []} parent={path} onSelect={onSelect} active={active} />
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 export default function PromptLibraryPage() {
+  const [domain, setDomain] = useState<Domain>("nsfw");
   const [query, setQuery] = useState("");
   const [codexFilter, setCodexFilter] = useState("");
-  const [categoryPath, setCategoryPath] = useState("");
+  const [categoryId, setCategoryId] = useState("");
   const [format, setFormat] = useState<Format>("moss");
-  const [includeNsfw, setIncludeNsfw] = useState(true);
   const [selected, setSelected] = useState<CodexEntry | null>(null);
   const [notice, setNotice] = useState("");
 
@@ -67,30 +35,40 @@ export default function PromptLibraryPage() {
     queryFn: () => api<Codex[]>("/api/codexes?include_nsfw=true"),
   });
 
+  const sourceCodexes = useMemo(
+    () =>
+      (codexesQuery.data || []).filter((codex) =>
+        domain === "reference" ? codex.id.startsWith("artist_") : !codex.id.startsWith("artist_"),
+      ),
+    [codexesQuery.data, domain],
+  );
+
   useEffect(() => {
-    if (!codexesQuery.data?.length) return;
-    if (codexFilter && !codexesQuery.data.some((codex) => codex.id === codexFilter)) {
+    if (!sourceCodexes.length) {
       setCodexFilter("");
+      return;
     }
-  }, [codexesQuery.data, codexFilter]);
+    if (!sourceCodexes.some((codex) => codex.id === codexFilter)) setCodexFilter("");
+  }, [sourceCodexes, codexFilter]);
+
+  useEffect(() => {
+    setCategoryId("");
+  }, [domain]);
 
   const categoriesQuery = useQuery({
-    queryKey: ["categories", codexFilter],
-    queryFn: () => api<CategoryNode[]>(`/api/codex/categories?codex_id=${encodeURIComponent(codexFilter)}`),
-    enabled: !!codexFilter,
+    queryKey: ["library-categories", domain],
+    queryFn: () => api<Category[]>(`/api/library/categories?domain=${domain}`),
   });
 
-  useEffect(() => {
-    setCategoryPath("");
-  }, [codexFilter]);
-
   const searchQuery = useQuery({
-    queryKey: ["library-search", query, codexFilter, categoryPath],
+    queryKey: ["library-search", query, domain, codexFilter, categoryId],
     queryFn: () =>
       api<CodexEntry[]>(
-        `/api/codex/search?q=${encodeURIComponent(query)}&limit=60&include_nsfw=${includeNsfw}${
-          codexFilter ? `&codex_id=${encodeURIComponent(codexFilter)}` : ""
-        }${categoryPath ? `&category_path=${encodeURIComponent(categoryPath)}` : ""}`,
+        `/api/codex/search?q=${encodeURIComponent(query)}&domain=${domain}&limit=60&include_nsfw=${
+          domain !== "regular"
+        }&include_artist_only=${domain === "reference"}${codexFilter ? `&codex_id=${encodeURIComponent(codexFilter)}` : ""}${
+          categoryId ? `&category_id=${encodeURIComponent(categoryId)}` : ""
+        }`,
       ),
     enabled: true,
   });
@@ -128,8 +106,8 @@ export default function PromptLibraryPage() {
   }
 
   const codexTitle = useMemo(
-    () => codexesQuery.data?.find((codex) => codex.id === codexFilter)?.title || "全部法典",
-    [codexesQuery.data, codexFilter],
+    () => sourceCodexes.find((codex) => codex.id === codexFilter)?.title || "全部来源",
+    [sourceCodexes, codexFilter],
   );
 
   return (
@@ -139,30 +117,35 @@ export default function PromptLibraryPage() {
           <div className="text-lg font-semibold">提示词检索</div>
           <div className="text-xs opacity-50">{codexTitle}</div>
         </div>
+        <div className="flex border border-white/15">
+          {DOMAIN_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              className={`px-4 py-2 text-sm ${domain === tab.id ? "bg-[#e4572e] text-white" : "hover:bg-white/5"}`}
+              onClick={() => setDomain(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
         <input
           className="min-w-[240px] flex-1 border border-white/15 bg-black/20 px-3 py-2 outline-none"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="搜索中文 / 英文 tag（留空可浏览分类）"
+          placeholder="搜索中文 / 英文 tag（留空浏览当前分类）"
         />
         <select
-          className="bg-black/20 px-3 py-2 text-sm outline-none"
+          className="max-w-[260px] bg-black/20 px-3 py-2 text-sm outline-none"
           value={codexFilter}
           onChange={(event) => setCodexFilter(event.target.value)}
         >
-          <option value="">全部法典</option>
-          {codexesQuery.data?.map((codex) => (
+          <option value="">全部来源</option>
+          {sourceCodexes.map((codex) => (
             <option key={codex.id} value={codex.id}>
               {codex.title} ({codex.entry_count})
             </option>
           ))}
         </select>
-        <button
-          className={`border px-3 py-2 text-sm ${includeNsfw ? "border-[#e4572e] text-[#ffb4a0]" : "border-white/20 opacity-60"}`}
-          onClick={() => setIncludeNsfw((value) => !value)}
-        >
-          R18 {includeNsfw ? "已开" : "已关"}
-        </button>
         <div className="flex border border-white/15">
           {(["nai", "moss", "sd"] as Format[]).map((item) => (
             <button
@@ -176,24 +159,32 @@ export default function PromptLibraryPage() {
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[240px_minmax(0,1fr)_340px] gap-3 px-3 pb-3">
+      <div className="grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)_340px] gap-3 px-3 pb-3">
         <aside className="panel overflow-auto p-2">
           <button
-            className={`mb-2 w-full px-2 py-1 text-left text-sm ${!categoryPath ? "bg-white/10" : "hover:bg-white/5"}`}
-            onClick={() => setCategoryPath("")}
+            className={`mb-2 w-full px-2 py-2 text-left text-sm ${!categoryId ? "bg-white/10" : "hover:bg-white/5"}`}
+            onClick={() => setCategoryId("")}
           >
             全部分类
           </button>
-          {categoriesQuery.data && (
-            <CategoryTree nodes={categoriesQuery.data} parent="" onSelect={setCategoryPath} active={categoryPath} />
-          )}
-          {!codexFilter && <div className="p-2 text-xs opacity-50">选择具体法典后显示分类</div>}
+          {categoriesQuery.data?.map((category) => (
+            <button
+              key={category.id}
+              className={`mb-0.5 flex w-full items-center justify-between px-2 py-2 text-left text-sm ${
+                categoryId === category.id ? "bg-[#e4572e]/15 text-[#ffb4a0]" : "hover:bg-white/5"
+              }`}
+              onClick={() => setCategoryId(categoryId === category.id ? "" : category.id)}
+            >
+              <span>{category.name}</span>
+              <span className="mono text-xs opacity-40">{category.count}</span>
+            </button>
+          ))}
         </aside>
 
         <main className="min-h-0 overflow-auto">
           <div className="mb-2 flex items-center justify-between text-xs opacity-60">
             <span>{searchQuery.data?.length || 0} 条结果</span>
-            <span>{categoryPath || "全部分类"}</span>
+            <span>{categoriesQuery.data?.find((category) => category.id === categoryId)?.name || "全部分类"}</span>
           </div>
           <div className="columns-2 gap-3 md:columns-3 xl:columns-4">
             {searchQuery.data?.map((entry) => (
