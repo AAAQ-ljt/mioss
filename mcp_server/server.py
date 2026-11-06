@@ -79,6 +79,11 @@ def style_presets_list() -> Any:
     return _request("GET", "/api/style-presets")
 
 
+@server.tool(description="批量删除项目。")
+def project_batch_delete(project_ids: list[str]) -> Any:
+    return _request("POST", "/api/projects/batch_delete", json={"project_ids": project_ids})
+
+
 @server.tool(description="删除项目及其页、角色和任务记录。")
 def project_delete(project_id: str) -> Any:
     return _request("DELETE", f"/api/projects/{project_id}")
@@ -183,6 +188,16 @@ def story_save(project_id: str, title: str, markdown: str) -> Any:
 @server.tool(description="按标题和 --- 切分项目 Markdown 为场景。")
 def story_parse(project_id: str, markdown: str | None = None) -> Any:
     return _request("POST", f"/api/projects/{project_id}/story/parse", json={"markdown": markdown})
+
+
+@server.tool(description="新增场景卡片。")
+def scene_create(project_id: str, title: str = "新场景", summary: str = "", excerpt: str = "") -> Any:
+    return _request("POST", f"/api/projects/{project_id}/scenes", json={"title": title, "summary": summary, "excerpt": excerpt})
+
+
+@server.tool(description="删除场景卡片。")
+def scene_delete(scene_id: str) -> Any:
+    return _request("DELETE", f"/api/scenes/{scene_id}")
 
 
 @server.tool(description="列出项目场景。")

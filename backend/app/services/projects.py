@@ -346,6 +346,14 @@ def delete_project(conn: sqlite3.Connection, project_id: str) -> bool:
     return True
 
 
+def batch_delete_projects(conn: sqlite3.Connection, project_ids: list[str]) -> int:
+    deleted = 0
+    for project_id in project_ids:
+        if delete_project(conn, project_id):
+            deleted += 1
+    return deleted
+
+
 def duplicate_page(conn: sqlite3.Connection, page_id: str) -> dict[str, Any] | None:
     row = conn.execute("SELECT * FROM page WHERE id = ?", (page_id,)).fetchone()
     if not row:

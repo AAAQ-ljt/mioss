@@ -163,6 +163,14 @@ def update_project(project_id: str, body: dict[str, Any], conn: sqlite3.Connecti
     return project
 
 
+@app.post("/api/projects/batch_delete")
+def batch_delete_projects(body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    project_ids = body.get("project_ids")
+    if not isinstance(project_ids, list):
+        raise HTTPException(status_code=400, detail="project_ids must be a list")
+    return {"deleted": projects.batch_delete_projects(conn, project_ids)}
+
+
 @app.delete("/api/projects/{project_id}")
 def delete_project(project_id: str, conn: sqlite3.Connection = Depends(get_conn)):
     if not projects.delete_project(conn, project_id):
@@ -472,6 +480,20 @@ def parse_story(project_id: str, body: dict[str, Any] | None = None, conn: sqlit
     return {"scenes": studio.replace_scenes(conn, project_id, studio.parse_scenes(markdown))}
 
 
+@app.post("/api/projects/{project_id}/scenes")
+def create_scene(project_id: str, body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    if not projects.get_project(conn, project_id):
+        raise HTTPException(status_code=404, detail="project not found")
+    return studio.create_scene(conn, project_id, body)
+
+
+@app.delete("/api/scenes/{scene_id}")
+def delete_scene(scene_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    if not studio.delete_scene(conn, scene_id):
+        raise HTTPException(status_code=404, detail="scene not found")
+    return {"deleted": scene_id}
+
+
 @app.get("/api/projects/{project_id}/scenes")
 def list_scenes(project_id: str, conn: sqlite3.Connection = Depends(get_conn)):
     return studio.list_scenes(conn, project_id)
@@ -483,6 +505,14 @@ def update_scene(scene_id: str, body: dict[str, Any], conn: sqlite3.Connection =
     if not scene:
         raise HTTPException(status_code=404, detail="scene not found")
     return scene
+
+
+@app.post("/api/projects/{project_id}/scenes/pages")
+def ensure_scene_pages(project_id: str, body: dict[str, Any] | None = None, conn: sqlite3.Connection = Depends(get_conn)):
+    if not projects.get_project(conn, project_id):
+        raise HTTPException(status_code=404, detail="project not found")
+    body = body or {}
+    return {"pages": studio.scenes_to_pages(conn, project_id, body.get("scene_ids"))}
 
 
 @app.post("/api/projects/{project_id}/scenes/generate")

@@ -32,6 +32,23 @@ def test_illustration_project_creates_illustration_pages(tmp_path):
     assert studio.list_scenes(conn, project["id"])[0]["page_id"] == pages[0]["id"]
 
 
+def test_scene_create_and_delete(tmp_path):
+    conn = make_conn(tmp_path)
+    project = projects.create_project(conn, "场景增删", mode="illustration")
+    scene = studio.create_scene(conn, project["id"], {"title": "新场景", "summary": "森林"})
+    assert studio.list_scenes(conn, project["id"])[0]["title"] == "新场景"
+    assert studio.delete_scene(conn, scene["id"]) is True
+    assert studio.list_scenes(conn, project["id"]) == []
+
+
+def test_batch_delete_projects(tmp_path):
+    conn = make_conn(tmp_path)
+    first = projects.create_project(conn, "项目一", mode="comic")
+    second = projects.create_project(conn, "项目二", mode="illustration")
+    assert projects.batch_delete_projects(conn, [first["id"], second["id"]]) == 2
+    assert projects.list_projects(conn) == []
+
+
 def test_comic_project_creates_comic_pages(tmp_path):
     conn = make_conn(tmp_path)
     project = projects.create_project(conn, "漫画项目", mode="comic")

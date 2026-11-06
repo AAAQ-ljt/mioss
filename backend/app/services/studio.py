@@ -254,6 +254,53 @@ def replace_scenes(conn: sqlite3.Connection, project_id: str, scenes: list[dict[
     return list_scenes(conn, project_id)
 
 
+def create_scene(conn: sqlite3.Connection, project_id: str, scene: dict[str, Any]) -> dict[str, Any]:
+    next_order = conn.execute(
+        "SELECT COALESCE(MAX(order_no), 0) + 1 AS next_order FROM story_scene WHERE project_id = ?",
+        (project_id,),
+    ).fetchone()["next_order"]
+    scene_id = _id()
+    timestamp = _now()
+    conn.execute(
+        """
+        INSERT INTO story_scene(
+          id, project_id, chapter_title, chapter_index, order_no, title, excerpt, summary,
+          characters, setting, mood, status, page_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', NULL, ?, ?)
+        """,
+        (
+            scene_id,
+            project_id,
+            scene.get("chapter_title", ""),
+            int(scene.get("chapter_index", 0)),
+            int(scene.get("order_no", next_order)),
+            scene.get("title", "新场景"),
+            scene.get("excerpt", ""),
+            scene.get("summary", ""),
+            scene.get("characters", ""),
+            scene.get("setting", ""),
+            scene.get("mood", ""),
+            timestamp,
+            timestamp,
+        ),
+    )
+    conn.execute("UPDATE project SET updated_at = datetime('now') WHERE id = ?", (project_id,))
+    conn.commit()
+    row = conn.execute("SELECT * FROM story_scene WHERE id = ?", (scene_id,)).fetchone()
+    return dict(row)
+
+
+def delete_scene(conn: sqlite3.Connection, scene_id: str) -> bool:
+    row = conn.execute("SELECT project_id FROM story_scene WHERE id = ?", (scene_id,)).fetchone()
+    if not row:
+        return False
+    conn.execute("UPDATE page SET scene_id = NULL WHERE scene_id = ?", (scene_id,))
+    conn.execute("DELETE FROM story_scene WHERE id = ?", (scene_id,))
+    conn.execute("UPDATE project SET updated_at = datetime('now') WHERE id = ?", (row["project_id"],))
+    conn.commit()
+    return True
+
+
 def list_scenes(conn: sqlite3.Connection, project_id: str) -> list[dict[str, Any]]:
     rows = conn.execute(
         "SELECT * FROM story_scene WHERE project_id = ? ORDER BY order_no",

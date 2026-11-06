@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, type CodexEntry, type Job, type Page, type Project, type PromptPreset, type StylePreset } from "../api";
 
 type Health = {
@@ -21,6 +22,9 @@ type LibraryCategory = { id: string; name: string; count: number };
 
 export default function StoryboardPage() {
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
+  const queryProject = searchParams.get("project");
+  const queryScene = searchParams.get("scene");
   const [projectTitle, setProjectTitle] = useState("测试漫画");
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
@@ -132,6 +136,16 @@ export default function StoryboardPage() {
 
   const project = projectQuery.data;
   const pages = project?.pages || [];
+
+  useEffect(() => {
+    if (queryProject) setSelectedProjectId(queryProject);
+  }, [queryProject]);
+
+  useEffect(() => {
+    if (!queryScene || !project) return;
+    const scenePage = project.pages?.find((page) => page.scene_id === queryScene);
+    if (scenePage) setSelectedPageId(scenePage.id);
+  }, [queryScene, project?.id, project?.pages]);
   const selectedPage = pages.find((page) => page.id === selectedPageId) || pages[0] || null;
 
   useEffect(() => {
