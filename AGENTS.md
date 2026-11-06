@@ -266,6 +266,7 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - M4 收藏中转站：检索卡片心形收藏（快照），TAG 中转站左常规/右 NSFW 双栏，跨栏多选，底部组合条支持 NAI/MOSS/SD 和复制；旧 relay_item 已清空停用。
 - M4 配方库：预设升级为风格/角色/负面/场景/组合配方，支持预览、seed、使用次数、版本；项目级绑定后自动进入页提示词，页面未设 seed/profile 时继承配方默认。
 - M4 故事与画廊：项目分 illustration/comic；Markdown 标题+`---`切场景；场景可生成插图或分镜页，支持选中确认和自动全部；画廊独立为 `/gallery`，按模式/项目查看；分镜台只显示漫画项目。
+- 当前数据已清空：项目 0、故事 0、分镜页 0、配方 0、收藏 0；测试图在 `data/_trash_projects_*`，数据库备份在 `data/backups/`。
 - 法典抓取已验证；`data/raw/` 和 `_scrape/` 有原始 JSON；数据库在 `data/moss.db`。
 - 本机可跑工作流为 14 节点单次 MOSS；ComfyUI 烟测成功，848×1488、seed 12345、约 90 秒出图。
 - 当前默认 profile 出图偏彩色电影感动漫；同 seed 校准显示 `manga-ink` 风格块能出多格黑白漫画页，自然语言也能出高质量单页。漫画项目默认应切到 `manga-ink`，封面/插画可保留 `cinematic-anime`。
