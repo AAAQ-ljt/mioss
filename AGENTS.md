@@ -38,7 +38,7 @@
 | 页面结构 | 5 个路由：/ 检索、/relay 中转站、/presets 预设、/story 故事、/board 分镜台；深色漫画编辑部后台布局 |
 | SD 权重 | `{}` 每层 ×1.05，`[]` 每层 ×0.95，数字权重精确转 `(tag:权重)`；负权重进负面提示词 |
 | 中转站 | 首页复制即入中转站；可组合、删除、清空、再复制 |
-| 故事 | 一个项目绑定一本 Markdown 小说；标题自动分章 |
+| 故事 | 一个项目一个文件夹；每章一个独立 Markdown 文件；编辑器按章节切换并自动保存 |
 | 参考项目 | `NovelAI-Tag-local-v1.5.0/` 只读；可参考其 tools 思路，禁止修改与依赖 |
 
 ## 3. 目录约定
@@ -57,8 +57,9 @@ F:\moss\tag\
   NovelAI-Tag-local-v1.5.0\   只读参考（不提交、不修改）
 
 projects\<project>\
-  project.json          项目元数据（含画廊排序）
   images\               生成图，文件名带页序与时间
+  chapters\             每章一个 chapter-<chapter_id>.md，正文以文件为准
+projects\_trash\        删除项目时整目录移入，可人工恢复
 ```
 
 ## 4. 数据源与同步
@@ -145,7 +146,7 @@ hyulla（画师）, artist:ahemaru（画师）
 - `preset_binding(id, project_id, preset_id, order_no, created_at)`（项目级配方锁定）
 - `story_doc(project_id, title, markdown, updated_at)`
 - `project(id, title, story, style_preset_id, gallery_sort, mode, created_at, updated_at)`（mode: illustration / comic）
-- `chapter(id, project_id, title, order_no, summary)`
+- `chapter(id, project_id, title, order_no, summary, file_name, updated_at)`（正文存 `chapters/file_name`，DB 只存元数据与摘要）
 - `page(id, chapter_id, order_no, summary, layout_note, prompt, negative, seed, status, image_path, kind, scene_id, created_at, updated_at)`
 - `story_scene(id, project_id, chapter_title, chapter_index, order_no, title, excerpt, summary, characters, setting, mood, status, page_id, created_at, updated_at)`
 - `character(id, project_id, name, anchor_tags, ref_image, notes)`
@@ -190,7 +191,8 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - `preset_list()` / `preset_upsert(preset)` / `preset_delete(id)`
 - `project_presets(project_id)` / `preset_bind(project_id, preset_id)` / `preset_unbind(project_id, preset_id)`
 - `story_get(project_id)` / `story_save(project_id, title, markdown)`
-- `story_parse(project_id, markdown?)` / `scene_list(project_id)` / `scene_update(scene_id, patch)` / `scenes_generate(project_id, scene_ids?, seed?, profile?)`
+- `chapter_list(project_id)` / `chapter_get(chapter_id)` / `chapter_create(project_id, title, content?)` / `chapter_save(chapter_id, content, title?)` / `chapter_delete(chapter_id)` / `chapter_reorder(project_id, chapter_ids)` / `chapter_import(project_id, markdown)`
+- `story_parse(project_id, markdown?)` / `scene_list(project_id)` / `scene_update(scene_id, patch)` / `scene_batch_delete(project_id, scene_ids)` / `scenes_generate(project_id, scene_ids?, seed?, profile?)`
 
 外部 AI 必须先检索、再引用真实 entry_id；项目端负责校验，不能信任 AI 编造的 id。
 
@@ -265,10 +267,14 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - M4 来源筛选移除：检索页和分镜台不再按法典来源过滤，默认全库；后续同步会跳过 `nsfw_extreme` 条目。
 - M4 收藏中转站：检索卡片心形收藏（快照），TAG 中转站左常规/右 NSFW 双栏，跨栏多选，底部组合条支持 NAI/MOSS/SD 和复制；旧 relay_item 已清空停用。
 - M4 配方库：预设升级为风格/角色/负面/场景/组合配方，支持预览、seed、使用次数、版本；项目级绑定后自动进入页提示词，页面未设 seed/profile 时继承配方默认。
-- M4 故事与画廊：项目分 illustration/comic；Markdown 标题+`---`切场景；场景可生成插图或分镜页，支持选中确认和自动全部；画廊独立为 `/gallery`，按模式/项目查看；分镜台只显示漫画项目。
+- M4 故事与画廊：项目分 illustration/comic；Markdown 标题+`---`切场景；场景可生成插图或分镜页；画廊独立为 `/gallery`，按模式/项目查看；分镜台只显示漫画项目。
 - M4 故事工作台：新建作品改为右侧抽屉（标题/模式/风格/作品管理），支持单删和批量删；章节支持弹窗新增和拖拽排序；编辑器/预览自定义右键菜单（复制/粘贴/转移到场景/顶部跳转）；场景卡片支持新增/删除/修改/生成/跳转分镜台。
+- M4 章节文件化：章节正文存 `projects/<project_id>/chapters/chapter-<id>.md`，DB 只存元数据；编辑器按章节切换渲染，800ms 防抖自动保存，切章/切作品/离开页面前强制落盘，不再有保存按钮。
+- M4 场景批量操作：故事页右侧提供全选、批量删除、跳转；跳转前自动为选中场景建页并带 `scene` 参数打开分镜台；已移除场景顶部“生成选中/自动全部”，批量出图统一在分镜台完成。
+- M4 删除安全：删除项目时整目录移入 `projects/_trash/<id>-<时间>`，不再留孤儿图片与章节文件。
 - 当前数据已清空：项目 0、故事 0、分镜页 0、配方 0、收藏 0；测试图在 `data/_trash_projects_*`，数据库备份在 `data/backups/`。
 - 当前数据再次清空（故事工作台验收后）：项目 0、场景 0、页 0、配方 0、收藏 0；备份 `moss-20261106-173550.db`，测试图在最新 `data/_trash_projects_*`。
+- 2026-11-06 章节文件重构验收：49 个后端测试通过；浏览器验证章节新增/切换/800ms 自动保存/切章落盘、项目新建切换、场景全选/批量删除/跳转、作品批量删除；验证项目已删除并移入 `projects/_trash/`，当前仅保留用户 `demo` 项目；备份 `moss-20261106-175635.db`。`projects/` 下仍有早期无 DB 记录的历史测试文件夹，未清理。
 - 法典抓取已验证；`data/raw/` 和 `_scrape/` 有原始 JSON；数据库在 `data/moss.db`。
 - 本机可跑工作流为 14 节点单次 MOSS；ComfyUI 烟测成功，848×1488、seed 12345、约 90 秒出图。
 - 当前默认 profile 出图偏彩色电影感动漫；同 seed 校准显示 `manga-ink` 风格块能出多格黑白漫画页，自然语言也能出高质量单页。漫画项目默认应切到 `manga-ink`，封面/插画可保留 `cinematic-anime`。

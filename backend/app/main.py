@@ -450,6 +450,55 @@ def unbind_preset(project_id: str, preset_id: str, conn: sqlite3.Connection = De
     return {"deleted": preset_id}
 
 
+@app.get("/api/projects/{project_id}/chapters")
+def list_chapters(project_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    return studio.list_chapters(conn, project_id)
+
+
+@app.post("/api/projects/{project_id}/chapters")
+def create_chapter(project_id: str, body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    return studio.create_chapter(conn, project_id, body.get("title", "新章节"), body.get("content"))
+
+
+@app.post("/api/projects/{project_id}/chapters/reorder")
+def reorder_chapters(project_id: str, body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    chapter_ids = body.get("chapter_ids")
+    if not isinstance(chapter_ids, list):
+        raise HTTPException(status_code=400, detail="chapter_ids must be a list")
+    try:
+        return studio.reorder_chapters(conn, project_id, chapter_ids)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/projects/{project_id}/chapters/import")
+def import_chapters(project_id: str, body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    return {"chapters": studio.import_markdown_chapters(conn, project_id, body.get("markdown", ""))}
+
+
+@app.get("/api/chapters/{chapter_id}")
+def get_chapter(chapter_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    chapter = studio.get_chapter(conn, chapter_id)
+    if not chapter:
+        raise HTTPException(status_code=404, detail="chapter not found")
+    return chapter
+
+
+@app.put("/api/chapters/{chapter_id}")
+def save_chapter(chapter_id: str, body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    chapter = studio.save_chapter(conn, chapter_id, body.get("content", ""), body.get("title"))
+    if not chapter:
+        raise HTTPException(status_code=404, detail="chapter not found")
+    return chapter
+
+
+@app.delete("/api/chapters/{chapter_id}")
+def delete_chapter(chapter_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    if not studio.delete_chapter(conn, chapter_id):
+        raise HTTPException(status_code=404, detail="chapter not found")
+    return {"deleted": chapter_id}
+
+
 @app.get("/api/projects/{project_id}/story")
 def get_story(project_id: str, conn: sqlite3.Connection = Depends(get_conn)):
     if not projects.get_project(conn, project_id):
@@ -505,6 +554,14 @@ def update_scene(scene_id: str, body: dict[str, Any], conn: sqlite3.Connection =
     if not scene:
         raise HTTPException(status_code=404, detail="scene not found")
     return scene
+
+
+@app.post("/api/projects/{project_id}/scenes/batch_delete")
+def batch_delete_scenes(project_id: str, body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    scene_ids = body.get("scene_ids")
+    if not isinstance(scene_ids, list):
+        raise HTTPException(status_code=400, detail="scene_ids must be a list")
+    return {"deleted": studio.delete_scenes(conn, project_id, scene_ids)}
 
 
 @app.post("/api/projects/{project_id}/scenes/pages")

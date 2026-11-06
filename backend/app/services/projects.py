@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -343,6 +344,12 @@ def delete_project(conn: sqlite3.Connection, project_id: str) -> bool:
     conn.execute("DELETE FROM chapter WHERE project_id = ?", (project_id,))
     conn.execute("DELETE FROM project WHERE id = ?", (project_id,))
     conn.commit()
+    folder = PROJECTS_DIR / project_id
+    if folder.is_dir():
+        trash = PROJECTS_DIR / "_trash"
+        trash.mkdir(parents=True, exist_ok=True)
+        target = trash / f"{project_id}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        shutil.move(str(folder), str(target))
     return True
 
 

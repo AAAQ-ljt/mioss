@@ -5,7 +5,10 @@ import re
 import sqlite3
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
+
+from ..config import PROJECTS_DIR
 
 
 def _now() -> str:
@@ -177,6 +180,142 @@ def parse_chapters(markdown: str) -> list[dict[str, Any]]:
         if match:
             chapters.append({"level": len(match.group(1)), "title": match.group(2).strip(), "line": index})
     return chapters
+
+
+def chapter_dir(project_id: str) -> Path:
+    path = PROJECTS_DIR / project_id / "chapters"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def list_chapters(conn: sqlite3.Connection, project_id: str) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT id, project_id, title, order_no, summary, file_name, updated_at FROM chapter WHERE project_id = ? ORDER BY order_no",
+        (project_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _insert_chapter(
+    conn: sqlite3.Connection,
+    project_id: str,
+    title: str,
+    content: str,
+    order_no: int,
+) -> dict[str, Any]:
+    chapter_id = _id()
+    file_name = f"chapter-{chapter_id}.md"
+    path = chapter_dir(project_id) / file_name
+    path.write_text(content, encoding="utf-8")
+    timestamp = _now()
+    conn.execute(
+        """
+        INSERT INTO chapter(id, project_id, title, order_no, summary, file_name, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (chapter_id, project_id, title, order_no, content[:200], file_name, timestamp),
+    )
+    conn.execute("UPDATE project SET updated_at = datetime('now') WHERE id = ?", (project_id,))
+    conn.commit()
+    row = conn.execute("SELECT * FROM chapter WHERE id = ?", (chapter_id,)).fetchone()
+    return dict(row)
+
+
+def create_chapter(conn: sqlite3.Connection, project_id: str, title: str, content: str | None = None) -> dict[str, Any]:
+    next_order = conn.execute(
+        "SELECT COALESCE(MAX(order_no), 0) + 1 AS next_order FROM chapter WHERE project_id = ?",
+        (project_id,),
+    ).fetchone()["next_order"]
+    return _insert_chapter(conn, project_id, title, content if content is not None else f"# {title}\n\n", next_order)
+
+
+def get_chapter(conn: sqlite3.Connection, chapter_id: str) -> dict[str, Any] | None:
+    row = conn.execute("SELECT * FROM chapter WHERE id = ?", (chapter_id,)).fetchone()
+    if not row:
+        return None
+    chapter = dict(row)
+    path = chapter_dir(chapter["project_id"]) / (chapter["file_name"] or f"chapter-{chapter['id']}.md")
+    chapter["content"] = path.read_text(encoding="utf-8") if path.exists() else ""
+    return chapter
+
+
+def save_chapter(conn: sqlite3.Connection, chapter_id: str, content: str, title: str | None = None) -> dict[str, Any] | None:
+    row = conn.execute("SELECT * FROM chapter WHERE id = ?", (chapter_id,)).fetchone()
+    if not row:
+        return None
+    chapter = dict(row)
+    path = chapter_dir(chapter["project_id"]) / (chapter["file_name"] or f"chapter-{chapter['id']}.md")
+    path.write_text(content, encoding="utf-8")
+    conn.execute(
+        "UPDATE chapter SET title = ?, summary = ?, updated_at = datetime('now') WHERE id = ?",
+        (title if title is not None else chapter["title"], content[:200], chapter_id),
+    )
+    conn.commit()
+    return get_chapter(conn, chapter_id)
+
+
+def delete_chapter(conn: sqlite3.Connection, chapter_id: str) -> bool:
+    row = conn.execute("SELECT * FROM chapter WHERE id = ?", (chapter_id,)).fetchone()
+    if not row:
+        return False
+    path = chapter_dir(row["project_id"]) / (row["file_name"] or f"chapter-{row['id']}.md")
+    path.unlink(missing_ok=True)
+    conn.execute("DELETE FROM chapter WHERE id = ?", (chapter_id,))
+    conn.commit()
+    return True
+
+
+def reorder_chapters(conn: sqlite3.Connection, project_id: str, chapter_ids: list[str]) -> list[dict[str, Any]]:
+    rows = conn.execute("SELECT id FROM chapter WHERE project_id = ?", (project_id,)).fetchall()
+    if set(chapter_ids) != {row["id"] for row in rows}:
+        raise ValueError("chapter_ids must contain exactly the project chapters")
+    for index, chapter_id in enumerate(chapter_ids, start=1):
+        conn.execute("UPDATE chapter SET order_no = ?, updated_at = datetime('now') WHERE id = ?", (index, chapter_id))
+    conn.commit()
+    return list_chapters(conn, project_id)
+
+
+def import_markdown_chapters(conn: sqlite3.Connection, project_id: str, markdown: str) -> list[dict[str, Any]]:
+    blocks = []
+    preamble: list[str] = []
+    current: dict[str, Any] | None = None
+    for line in markdown.splitlines():
+        heading = re.match(r"^(#{1,6})\s+(.+)$", line)
+        if heading:
+            if current:
+                blocks.append(current)
+            current = {"title": heading.group(2).strip(), "lines": [line]}
+        elif current:
+            current["lines"].append(line)
+        else:
+            preamble.append(line)
+    if current:
+        blocks.append(current)
+
+    existing = conn.execute("SELECT COALESCE(MAX(order_no), 0) AS max_order FROM chapter WHERE project_id = ?", (project_id,)).fetchone()["max_order"]
+    created = []
+    if "".join(preamble).strip():
+        created.append(_insert_chapter(conn, project_id, "前言", "\n".join(preamble).strip() + "\n", existing + 1))
+        existing += 1
+    if not blocks:
+        created.append(_insert_chapter(conn, project_id, "正文", markdown, existing + 1))
+        return created
+    for block in blocks:
+        existing += 1
+        created.append(_insert_chapter(conn, project_id, block["title"], "\n".join(block["lines"]).strip() + "\n", existing))
+    return created
+
+
+def delete_scenes(conn: sqlite3.Connection, project_id: str, scene_ids: list[str]) -> int:
+    allowed = {
+        row["id"]
+        for row in conn.execute("SELECT id FROM story_scene WHERE project_id = ?", (project_id,)).fetchall()
+    }
+    deleted = 0
+    for scene_id in scene_ids:
+        if scene_id in allowed and delete_scene(conn, scene_id):
+            deleted += 1
+    return deleted
 
 
 def parse_scenes(markdown: str) -> list[dict[str, Any]]:

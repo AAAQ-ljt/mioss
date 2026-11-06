@@ -190,6 +190,46 @@ def story_parse(project_id: str, markdown: str | None = None) -> Any:
     return _request("POST", f"/api/projects/{project_id}/story/parse", json={"markdown": markdown})
 
 
+@server.tool(description="列出项目章节（每章独立 md 文件）。")
+def chapter_list(project_id: str) -> Any:
+    return _request("GET", f"/api/projects/{project_id}/chapters")
+
+
+@server.tool(description="读取章节内容和元数据。")
+def chapter_get(chapter_id: str) -> Any:
+    return _request("GET", f"/api/chapters/{chapter_id}")
+
+
+@server.tool(description="新增章节 md 文件。")
+def chapter_create(project_id: str, title: str, content: str | None = None) -> Any:
+    return _request("POST", f"/api/projects/{project_id}/chapters", json={"title": title, "content": content})
+
+
+@server.tool(description="保存章节 md 内容。")
+def chapter_save(chapter_id: str, content: str, title: str | None = None) -> Any:
+    return _request("PUT", f"/api/chapters/{chapter_id}", json={"content": content, "title": title})
+
+
+@server.tool(description="按 chapter_ids 顺序重排章节。")
+def chapter_reorder(project_id: str, chapter_ids: list[str]) -> Any:
+    return _request("POST", f"/api/projects/{project_id}/chapters/reorder", json={"chapter_ids": chapter_ids})
+
+
+@server.tool(description="导入整段 Markdown，按标题拆成多个章节文件。")
+def chapter_import(project_id: str, markdown: str) -> Any:
+    return _request("POST", f"/api/projects/{project_id}/chapters/import", json={"markdown": markdown})
+
+
+@server.tool(description="删除章节及其 md 文件。")
+def chapter_delete(chapter_id: str) -> Any:
+    return _request("DELETE", f"/api/chapters/{chapter_id}")
+
+
+@server.tool(description="批量删除场景。")
+def scene_batch_delete(project_id: str, scene_ids: list[str]) -> Any:
+    return _request("POST", f"/api/projects/{project_id}/scenes/batch_delete", json={"scene_ids": scene_ids})
+
+
 @server.tool(description="新增场景卡片。")
 def scene_create(project_id: str, title: str = "新场景", summary: str = "", excerpt: str = "") -> Any:
     return _request("POST", f"/api/projects/{project_id}/scenes", json={"title": title, "summary": summary, "excerpt": excerpt})

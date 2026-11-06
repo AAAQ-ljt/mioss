@@ -145,6 +145,18 @@ export type StoryDoc = {
   chapters: { level: number; title: string; line: number }[];
 };
 
+export type Chapter = {
+  id: string;
+  project_id: string;
+  title: string;
+  order_no: number;
+  summary: string;
+  file_name: string | null;
+  updated_at: string | null;
+};
+
+export type ChapterDetail = Chapter & { content: string };
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },

@@ -1,42 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { api, type Project, type StoryDoc, type StoryScene, type StylePreset } from "../api";
+import { api, type Chapter, type ChapterDetail, type Project, type StoryScene, type StylePreset } from "../api";
 import { copyText } from "../utils/clipboard";
 
-type ChapterBlock = { level: number; title: string; raw: string };
 type ContextMenu = { x: number; y: number; text: string; start: number; end: number; target: "editor" | "preview" } | null;
-
-function splitChapters(markdown: string): { preamble: string[]; blocks: ChapterBlock[] } {
-  const preamble: string[] = [];
-  const blocks: ChapterBlock[] = [];
-  let current: { level: number; title: string; lines: string[] } | null = null;
-  for (const line of markdown.split("\n")) {
-    const heading = line.match(/^(#{1,6})\s+(.+)$/);
-    if (heading) {
-      if (current) blocks.push({ level: current.level, title: current.title, raw: current.lines.join("\n") });
-      current = { level: heading[1].length, title: heading[2].trim(), lines: [line] };
-    } else if (current) {
-      current.lines.push(line);
-    } else {
-      preamble.push(line);
-    }
-  }
-  if (current) blocks.push({ level: current.level, title: current.title, raw: current.lines.join("\n") });
-  return { preamble, blocks };
-}
-
-function joinChapters(preamble: string[], blocks: ChapterBlock[]): string {
-  const pre = preamble.join("\n").trim();
-  const body = blocks.map((block) => block.raw.trimEnd()).join("\n\n");
-  return [pre, body].filter(Boolean).join("\n\n") + "\n";
-}
 
 export default function StoryPage() {
   const queryClient = useQueryClient();
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const [projectId, setProjectId] = useState("");
-  const [markdown, setMarkdown] = useState("");
+  const [chapterId, setChapterId] = useState("");
+  const [content, setContent] = useState("");
+  const [savedContent, setSavedContent] = useState("");
+  const [loadedChapterId, setLoadedChapterId] = useState("");
+  const [saveState, setSaveState] = useState<"saved" | "dirty" | "saving">("saved");
+  const savingRef = useRef<Promise<boolean> | null>(null);
+  const saveSeqRef = useRef(0);
+  const latestRef = useRef({ chapterId: "", content: "", savedContent: "" });
   const [viewMode, setViewMode] = useState<"edit" | "preview">("edit");
   const [selectedScenes, setSelectedScenes] = useState<string[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -49,6 +30,7 @@ export default function StoryPage() {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [menu, setMenu] = useState<ContextMenu>(null);
   const [notice, setNotice] = useState("");
+  latestRef.current = { chapterId, content, savedContent };
 
   const projectsQuery = useQuery({
     queryKey: ["projects"],
@@ -73,10 +55,34 @@ export default function StoryPage() {
   const project = projectsQuery.data?.find((item) => item.id === projectId);
   const mode = project?.mode || "comic";
 
-  const storyQuery = useQuery({
-    queryKey: ["story", projectId],
-    queryFn: () => api<StoryDoc>(`/api/projects/${projectId}/story`),
+  useEffect(() => {
+    setContent("");
+    setSavedContent("");
+    setLoadedChapterId("");
+    setChapterId("");
+    setSelectedScenes([]);
+  }, [projectId]);
+
+  const chaptersQuery = useQuery({
+    queryKey: ["chapters", projectId],
+    queryFn: () => api<Chapter[]>(`/api/projects/${projectId}/chapters`),
     enabled: !!projectId,
+  });
+
+  useEffect(() => {
+    if (!chaptersQuery.data?.length) {
+      setChapterId("");
+      return;
+    }
+    if (!chaptersQuery.data.some((chapter) => chapter.id === chapterId)) {
+      setChapterId(chaptersQuery.data[0].id);
+    }
+  }, [chaptersQuery.data, chapterId]);
+
+  const chapterQuery = useQuery({
+    queryKey: ["chapter", chapterId],
+    queryFn: () => api<ChapterDetail>(`/api/chapters/${chapterId}`),
+    enabled: !!chapterId,
   });
 
   const scenesQuery = useQuery({
@@ -86,8 +92,22 @@ export default function StoryPage() {
   });
 
   useEffect(() => {
-    if (storyQuery.data) setMarkdown(storyQuery.data.markdown || "");
-  }, [storyQuery.data?.project_id, storyQuery.data?.updated_at]);
+    const data = chapterQuery.data;
+    if (!data || !chapterId || data.id !== chapterId) return;
+    const text = data.content || "";
+    if (data.id !== loadedChapterId) {
+      setContent(text);
+      setSavedContent(text);
+      setLoadedChapterId(data.id);
+      setSaveState("saved");
+      return;
+    }
+    if (content === savedContent && text !== savedContent) {
+      setContent(text);
+      setSavedContent(text);
+      setSaveState("saved");
+    }
+  }, [chapterQuery.data, chapterId, loadedChapterId, content, savedContent]);
 
   useEffect(() => {
     function close() {
@@ -108,31 +128,103 @@ export default function StoryPage() {
     };
   }, []);
 
-  const chapterData = useMemo(() => splitChapters(markdown), [markdown]);
+  async function persistChapter(id: string, text: string): Promise<boolean> {
+    setSaveState("saving");
+    const seq = ++saveSeqRef.current;
+    const request = api(`/api/chapters/${id}`, { method: "PUT", body: JSON.stringify({ content: text }) })
+      .then(() => {
+        setSavedContent(text);
+        setSaveState(latestRef.current.content === text ? "saved" : "dirty");
+        queryClient.setQueryData<ChapterDetail>(["chapter", id], (current) =>
+          current && current.id === id ? { ...current, content: text } : current,
+        );
+        queryClient.invalidateQueries({ queryKey: ["chapters", projectId] });
+        return true;
+      })
+      .catch(() => {
+        setSaveState("dirty");
+        return false;
+      })
+      .finally(() => {
+        if (saveSeqRef.current === seq) savingRef.current = null;
+      });
+    savingRef.current = request;
+    return request;
+  }
 
-  const saveStory = useMutation({
-    mutationFn: (next?: string) =>
-      api<StoryDoc>(`/api/projects/${projectId}/story`, {
+  useEffect(() => {
+    if (!chapterId || loadedChapterId !== chapterId || content === savedContent) return;
+    setSaveState("dirty");
+    if (savingRef.current) return;
+    const timer = window.setTimeout(() => {
+      if (!savingRef.current) void persistChapter(chapterId, content);
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [content, savedContent, chapterId, loadedChapterId, projectId, queryClient]);
+
+  async function flushChapter(): Promise<boolean> {
+    if (savingRef.current) await savingRef.current;
+    const latest = latestRef.current;
+    if (!latest.chapterId || latest.content === latest.savedContent) return true;
+    if (savingRef.current) await savingRef.current;
+    return persistChapter(latest.chapterId, latest.content);
+  }
+
+  useEffect(() => {
+    function flushOnExit() {
+      const latest = latestRef.current;
+      if (!latest.chapterId || latest.content === latest.savedContent) return;
+      fetch(`/api/chapters/${latest.chapterId}`, {
         method: "PUT",
-        body: JSON.stringify({ title: project?.title || "", markdown: next ?? markdown }),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["story", projectId] });
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-    },
-  });
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: latest.content }),
+        keepalive: true,
+      }).catch(() => undefined);
+    }
+    window.addEventListener("beforeunload", flushOnExit);
+    return () => {
+      window.removeEventListener("beforeunload", flushOnExit);
+      flushOnExit();
+    };
+  }, []);
+
+  async function selectChapter(id: string) {
+    if (id === chapterId) return;
+    if (!(await flushChapter())) {
+      setNotice("保存失败，已取消切换");
+      return;
+    }
+    setContent("");
+    setSavedContent("");
+    setLoadedChapterId("");
+    setChapterId(id);
+  }
+
+  async function selectProject(id: string) {
+    if (id === projectId) return;
+    if (!(await flushChapter())) {
+      setNotice("保存失败，已取消切换");
+      return;
+    }
+    setProjectId(id);
+  }
 
   const createProject = useMutation({
-    mutationFn: () =>
-      api<Project>("/api/projects", {
+    mutationFn: async () => {
+      if (!(await flushChapter())) throw new Error("chapter save failed");
+      const created = await api<Project>("/api/projects", {
         method: "POST",
         body: JSON.stringify({ title: newTitle, mode: newMode, style_preset_id: newStyle }),
-      }),
-    onSuccess: (created) => {
-      setProjectId(created.id);
-      setDrawerOpen(false);
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      });
+      await api(`/api/projects/${created.id}/chapters`, { method: "POST", body: JSON.stringify({ title: "第一章" }) });
+      return created;
     },
+    onSuccess: async (created) => {
+      setDrawerOpen(false);
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      setProjectId(created.id);
+    },
+    onError: () => setNotice("保存失败，未新建作品"),
   });
 
   const deleteProject = useMutation({
@@ -151,6 +243,50 @@ export default function StoryPage() {
     },
   });
 
+  const createChapter = useMutation({
+    mutationFn: async (title: string) => {
+      if (!(await flushChapter())) throw new Error("chapter save failed");
+      return api<Chapter>(`/api/projects/${projectId}/chapters`, { method: "POST", body: JSON.stringify({ title }) });
+    },
+    onSuccess: async (chapter) => {
+      setChapterModal(false);
+      setChapterName("");
+      await queryClient.invalidateQueries({ queryKey: ["chapters", projectId] });
+      setContent("");
+      setSavedContent("");
+      setLoadedChapterId("");
+      setChapterId(chapter.id);
+    },
+    onError: () => setNotice("保存失败，未新增章节"),
+  });
+
+  const reorderChapters = useMutation({
+    mutationFn: (chapterIds: string[]) =>
+      api<Chapter[]>(`/api/projects/${projectId}/chapters/reorder`, { method: "POST", body: JSON.stringify({ chapter_ids: chapterIds }) }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["chapters", projectId] }),
+  });
+
+  const importChapters = useMutation({
+    mutationFn: async (markdown: string) => {
+      if (!(await flushChapter())) throw new Error("chapter save failed");
+      return api<{ chapters: Chapter[] }>(`/api/projects/${projectId}/chapters/import`, {
+        method: "POST",
+        body: JSON.stringify({ markdown }),
+      });
+    },
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ["chapters", projectId] });
+      if (result.chapters[0]) {
+        setContent("");
+        setSavedContent("");
+        setLoadedChapterId("");
+        setChapterId(result.chapters[0].id);
+      }
+      setNotice(`导入 ${result.chapters.length} 个章节`);
+    },
+    onError: () => setNotice("保存失败，未导入章节"),
+  });
+
   const createScene = useMutation({
     mutationFn: (payload: Partial<StoryScene>) => api<StoryScene>(`/api/projects/${projectId}/scenes`, { method: "POST", body: JSON.stringify(payload) }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["scenes", projectId] }),
@@ -158,7 +294,18 @@ export default function StoryPage() {
 
   const deleteScene = useMutation({
     mutationFn: (id: string) => api(`/api/scenes/${id}`, { method: "DELETE" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["scenes", projectId] }),
+    onSuccess: (_data, id) => {
+      setSelectedScenes((current) => current.filter((sceneId) => sceneId !== id));
+      queryClient.invalidateQueries({ queryKey: ["scenes", projectId] });
+    },
+  });
+
+  const batchDeleteScenes = useMutation({
+    mutationFn: () => api(`/api/projects/${projectId}/scenes/batch_delete`, { method: "POST", body: JSON.stringify({ scene_ids: selectedScenes }) }),
+    onSuccess: () => {
+      setSelectedScenes([]);
+      queryClient.invalidateQueries({ queryKey: ["scenes", projectId] });
+    },
   });
 
   const updateScene = useMutation({
@@ -167,14 +314,14 @@ export default function StoryPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["scenes", projectId] }),
   });
 
-  const generateScenes = useMutation({
-    mutationFn: (sceneIds?: string[]) =>
-      api<{ pages: unknown[]; status: string }>(`/api/projects/${projectId}/scenes/generate`, {
+  const generateScene = useMutation({
+    mutationFn: (sceneId: string) =>
+      api<{ pages: unknown[] }>(`/api/projects/${projectId}/scenes/generate`, {
         method: "POST",
-        body: JSON.stringify({ scene_ids: sceneIds }),
+        body: JSON.stringify({ scene_ids: [sceneId] }),
       }),
-    onSuccess: (result) => {
-      setNotice(`已加入队列：${result.pages.length} 个${mode === "illustration" ? "插图" : "分镜页"}`);
+    onSuccess: () => {
+      setNotice("已加入生成队列");
       queryClient.invalidateQueries({ queryKey: ["scenes", projectId] });
     },
   });
@@ -183,25 +330,28 @@ export default function StoryPage() {
     setSelectedScenes((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
   }
 
-  function addChapter() {
-    const name = chapterName.trim();
-    if (!name) return;
-    const blocks = [...chapterData.blocks, { level: 1, title: name, raw: `# ${name}\n` }];
-    const next = joinChapters(chapterData.preamble, blocks);
-    setMarkdown(next);
-    saveStory.mutate(next);
-    setChapterName("");
-    setChapterModal(false);
+  function toggleAllScenes() {
+    const all = scenesQuery.data || [];
+    setSelectedScenes(selectedScenes.length === all.length ? [] : all.map((scene) => scene.id));
+  }
+
+  async function jumpToBoard(sceneIds: string[]) {
+    if (!sceneIds.length) return;
+    try {
+      await api(`/api/projects/${projectId}/scenes/pages`, { method: "POST", body: JSON.stringify({ scene_ids: sceneIds }) });
+    } catch {
+      // 页面已存在或创建失败时仍然跳转
+    }
+    window.location.href = `/board?project=${projectId}&scene=${sceneIds[0]}`;
   }
 
   function dropChapter(targetIndex: number) {
+    const chapters = chaptersQuery.data || [];
     if (dragIndex === null || dragIndex === targetIndex) return;
-    const blocks = [...chapterData.blocks];
-    const [moved] = blocks.splice(dragIndex, 1);
-    blocks.splice(targetIndex, 0, moved);
-    const next = joinChapters(chapterData.preamble, blocks);
-    setMarkdown(next);
-    saveStory.mutate(next);
+    const ids = chapters.map((chapter) => chapter.id);
+    const [moved] = ids.splice(dragIndex, 1);
+    ids.splice(targetIndex, 0, moved);
+    reorderChapters.mutate(ids);
     setDragIndex(null);
   }
 
@@ -225,8 +375,7 @@ export default function StoryPage() {
     if (!menu || menu.target !== "editor" || !editorRef.current) return;
     try {
       const clipboard = await navigator.clipboard.readText();
-      const next = markdown.slice(0, menu.start) + clipboard + markdown.slice(menu.end);
-      setMarkdown(next);
+      setContent(content.slice(0, menu.start) + clipboard + content.slice(menu.end));
     } catch {
       setNotice("浏览器不允许读取剪贴板");
     }
@@ -236,21 +385,16 @@ export default function StoryPage() {
     if (!menu?.text.trim()) return;
     const text = menu.text.trim();
     const title = text.split("\n").find((line) => line.trim())?.trim().slice(0, 40) || "新场景";
-    createScene.mutate({ title, summary: text.slice(0, 500), excerpt: text });
+    createScene.mutate({
+      title,
+      summary: text.slice(0, 500),
+      excerpt: text,
+      chapter_title: chaptersQuery.data?.find((chapter) => chapter.id === chapterId)?.title || "",
+    });
     setNotice("已转移到右侧场景");
   }
 
-  async function jumpToBoard(scene: StoryScene) {
-    try {
-      await api(`/api/projects/${projectId}/scenes/pages`, {
-        method: "POST",
-        body: JSON.stringify({ scene_ids: [scene.id] }),
-      });
-    } catch {
-      // 页面已存在或创建失败时仍然跳到分镜台
-    }
-    window.location.href = `/board?project=${projectId}&scene=${scene.id}`;
-  }
+  const currentChapter = chaptersQuery.data?.find((chapter) => chapter.id === chapterId);
 
   return (
     <div className="flex h-screen flex-col">
@@ -259,7 +403,7 @@ export default function StoryPage() {
           <div className="text-lg font-semibold">故事整理</div>
           <div className="text-xs opacity-50">{mode === "illustration" ? "小说配图模式" : "改编漫画模式"}</div>
         </div>
-        <select className="bg-black/20 px-3 py-2 text-sm outline-none" value={projectId} onChange={(event) => setProjectId(event.target.value)}>
+        <select className="bg-black/20 px-3 py-2 text-sm outline-none" value={projectId} onChange={(event) => void selectProject(event.target.value)}>
           {projectsQuery.data?.map((item) => (
             <option key={item.id} value={item.id}>
               [{item.mode === "illustration" ? "插图" : "漫画"}] {item.title}
@@ -275,7 +419,7 @@ export default function StoryPage() {
         {notice && <span className="mono text-xs text-[#ffb4a0]">{notice}</span>}
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[200px_minmax(0,1fr)_420px] gap-3 px-3 pb-3">
+      <div className="grid min-h-0 flex-1 grid-cols-[200px_minmax(0,1fr)_440px] gap-3 px-3 pb-3">
         <aside className="panel min-h-0 overflow-auto p-3">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-sm font-medium">章节目录</span>
@@ -283,28 +427,27 @@ export default function StoryPage() {
               新增章节
             </button>
           </div>
-          {chapterData.blocks.map((chapter, index) => (
+          {chaptersQuery.data?.map((chapter, index) => (
             <div
-              key={`${chapter.title}-${index}`}
+              key={chapter.id}
               draggable
               onDragStart={() => setDragIndex(index)}
               onDragOver={(event) => event.preventDefault()}
               onDrop={() => dropChapter(index)}
-              className="mb-1 cursor-move truncate border border-transparent px-2 py-1 text-sm hover:border-white/15"
-              style={{ paddingLeft: 8 + (chapter.level - 1) * 10 }}
+              className={`mb-1 cursor-move truncate border px-2 py-1 text-sm ${
+                chapterId === chapter.id ? "border-[#e4572e] text-[#ffb4a0]" : "border-transparent hover:border-white/15"
+              }`}
+              onClick={() => selectChapter(chapter.id)}
             >
               {chapter.title}
             </div>
           ))}
-          {!chapterData.blocks.length && <div className="text-xs opacity-40">Markdown 标题会自动成为章节</div>}
+          {!chaptersQuery.data?.length && <div className="text-xs opacity-40">新增章节后会生成独立 md 文件</div>}
         </aside>
 
         <section className="panel flex min-h-0 flex-col p-3">
           <div className="mb-2 flex items-center justify-between">
-            <div className="flex gap-2">
-              <button className="border border-[#e4572e] px-3 py-1 text-sm text-[#e4572e]" onClick={() => saveStory.mutate(undefined)} disabled={!projectId}>
-                保存
-              </button>
+            <div className="flex items-center gap-2">
               <label className="cursor-pointer border border-white/20 px-3 py-1 text-sm">
                 导入
                 <input
@@ -313,11 +456,14 @@ export default function StoryPage() {
                   className="hidden"
                   onChange={async (event) => {
                     const file = event.target.files?.[0];
-                    if (file) setMarkdown(await file.text());
+                    if (file) importChapters.mutate(await file.text());
                     event.currentTarget.value = "";
                   }}
                 />
               </label>
+              <span className="mono text-xs opacity-50">
+                {saveState === "saving" ? "保存中…" : saveState === "dirty" ? "未保存" : "已保存"}
+              </span>
             </div>
             <div className="flex border border-white/15 text-xs">
               <button className={`px-3 py-1 ${viewMode === "edit" ? "bg-[#e4572e] text-white" : ""}`} onClick={() => setViewMode("edit")}>
@@ -332,14 +478,14 @@ export default function StoryPage() {
             <textarea
               ref={editorRef}
               className="serif min-h-0 flex-1 resize-none bg-black/25 p-3 text-sm leading-7 outline-none"
-              value={markdown}
-              onChange={(event) => setMarkdown(event.target.value)}
+              value={content}
+              onChange={(event) => setContent(event.target.value)}
               onContextMenu={(event) => openContextMenu(event, "editor")}
-              placeholder="# 第一章&#10;&#10;正文&#10;&#10;---&#10;&#10;场景二"
+              placeholder="当前章节还没有内容"
             />
           ) : (
             <div className="prose-manga min-h-0 flex-1 overflow-auto p-5" onContextMenu={(event) => { event.stopPropagation(); openContextMenu(event, "preview"); }}>
-              <ReactMarkdown>{markdown}</ReactMarkdown>
+              <ReactMarkdown>{content}</ReactMarkdown>
             </div>
           )}
         </section>
@@ -351,14 +497,25 @@ export default function StoryPage() {
               <div className="mono text-xs opacity-50">{mode === "illustration" ? "一场景一张插图" : "一场景一页分镜"}</div>
             </div>
             <div className="flex gap-1">
-              <button className="border border-white/20 px-2 py-1 text-xs" onClick={() => createScene.mutate({ title: "新场景", summary: "" })}>
+              <button className="border border-white/20 px-2 py-1 text-xs" onClick={toggleAllScenes}>
+                {selectedScenes.length === (scenesQuery.data?.length || 0) && selectedScenes.length ? "取消全选" : "全选"}
+              </button>
+              <button className="border border-white/20 px-2 py-1 text-xs" onClick={() => createScene.mutate({ title: "新场景", summary: "", chapter_title: currentChapter?.title || "" })}>
                 新增
               </button>
-              <button className="border border-white/20 px-2 py-1 text-xs disabled:opacity-40" onClick={() => generateScenes.mutate(selectedScenes)} disabled={!selectedScenes.length}>
-                生成选中
+              <button
+                className="border border-white/20 px-2 py-1 text-xs text-red-300 disabled:opacity-40"
+                disabled={!selectedScenes.length}
+                onClick={() => window.confirm(`删除选中的 ${selectedScenes.length} 个场景？`) && batchDeleteScenes.mutate()}
+              >
+                批量删除
               </button>
-              <button className="border border-[#e4572e] px-2 py-1 text-xs text-[#e4572e]" onClick={() => generateScenes.mutate(undefined)} disabled={!scenesQuery.data?.length}>
-                自动全部
+              <button
+                className="border border-[#e4572e] px-2 py-1 text-xs text-[#e4572e] disabled:opacity-40"
+                disabled={!selectedScenes.length}
+                onClick={() => jumpToBoard(selectedScenes)}
+              >
+                跳转
               </button>
             </div>
           </div>
@@ -396,13 +553,8 @@ export default function StoryPage() {
                       />
                     </div>
                     <div className="mt-2 flex gap-1">
-                      <button className="border border-white/20 px-2 py-1 text-xs" onClick={() => generateScenes.mutate([scene.id])}>生成</button>
-                      <button
-                        className="border border-white/20 px-2 py-1 text-xs"
-                        onClick={() => jumpToBoard(scene)}
-                      >
-                        跳转
-                      </button>
+                      <button className="border border-white/20 px-2 py-1 text-xs" onClick={() => generateScene.mutate(scene.id)}>生成</button>
+                      <button className="border border-white/20 px-2 py-1 text-xs" onClick={() => jumpToBoard([scene.id])}>跳转</button>
                       <button className="border border-white/20 px-2 py-1 text-xs text-red-300" onClick={() => deleteScene.mutate(scene.id)}>删除</button>
                     </div>
                   </div>
@@ -440,15 +592,13 @@ export default function StoryPage() {
             <div className="panel p-3">
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-sm font-medium">作品管理</span>
-                <div className="flex gap-1">
-                  <button
-                    className="border border-white/20 px-2 py-1 text-xs text-red-300 disabled:opacity-40"
-                    disabled={!selectedProjects.length}
-                    onClick={() => window.confirm(`删除选中的 ${selectedProjects.length} 个作品？`) && batchDeleteProjects.mutate()}
-                  >
-                    批量删除
-                  </button>
-                </div>
+                <button
+                  className="border border-white/20 px-2 py-1 text-xs text-red-300 disabled:opacity-40"
+                  disabled={!selectedProjects.length}
+                  onClick={() => window.confirm(`删除选中的 ${selectedProjects.length} 个作品？`) && batchDeleteProjects.mutate()}
+                >
+                  批量删除
+                </button>
               </div>
               {projectsQuery.data?.map((item) => (
                 <div key={item.id} className="mb-1 flex items-center gap-2 border-b border-white/10 py-2">
@@ -462,12 +612,7 @@ export default function StoryPage() {
                     }
                   />
                   <span className="min-w-0 flex-1 truncate text-sm">[{item.mode === "illustration" ? "插图" : "漫画"}] {item.title}</span>
-                  <button
-                    className="text-xs text-red-300"
-                    onClick={() => window.confirm(`删除作品「${item.title}」？`) && deleteProject.mutate(item.id)}
-                  >
-                    删除
-                  </button>
+                  <button className="text-xs text-red-300" onClick={() => window.confirm(`删除作品「${item.title}」？`) && deleteProject.mutate(item.id)}>删除</button>
                 </div>
               ))}
               {!projectsQuery.data?.length && <div className="text-xs opacity-40">暂无作品</div>}
@@ -483,7 +628,7 @@ export default function StoryPage() {
             <input className="mb-3 w-full bg-black/25 px-2 py-2 text-sm outline-none" value={chapterName} onChange={(event) => setChapterName(event.target.value)} placeholder="章节名" autoFocus />
             <div className="flex justify-end gap-2">
               <button className="border border-white/20 px-3 py-1 text-sm" onClick={() => setChapterModal(false)}>取消</button>
-              <button className="border border-[#e4572e] px-3 py-1 text-sm text-[#e4572e]" onClick={addChapter}>添加</button>
+              <button className="border border-[#e4572e] px-3 py-1 text-sm text-[#e4572e]" onClick={() => createChapter.mutate(chapterName.trim())} disabled={!chapterName.trim()}>添加</button>
             </div>
           </div>
         </div>
