@@ -433,6 +433,9 @@ def delete_scene(conn: sqlite3.Connection, scene_id: str) -> bool:
     row = conn.execute("SELECT project_id FROM story_scene WHERE id = ?", (scene_id,)).fetchone()
     if not row:
         return False
+    from .tasks import delete_tasks_for_scene
+
+    delete_tasks_for_scene(conn, scene_id)
     conn.execute("UPDATE page SET scene_id = NULL WHERE scene_id = ?", (scene_id,))
     conn.execute("DELETE FROM story_scene WHERE id = ?", (scene_id,))
     conn.execute("UPDATE project SET updated_at = datetime('now') WHERE id = ?", (row["project_id"],))
@@ -449,7 +452,7 @@ def list_scenes(conn: sqlite3.Connection, project_id: str) -> list[dict[str, Any
 
 
 def update_scene(conn: sqlite3.Connection, scene_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
-    allowed = {"title", "summary", "characters", "setting", "mood", "status", "page_id", "order_no"}
+    allowed = {"title", "summary", "excerpt", "characters", "setting", "mood", "status", "page_id", "order_no", "chapter_title", "chapter_index"}
     fields = []
     params = []
     for key, value in patch.items():

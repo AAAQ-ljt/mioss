@@ -4,6 +4,7 @@ import GalleryPage from "./pages/GalleryPage";
 import PresetsPage from "./pages/PresetsPage";
 import PromptLibraryPage from "./pages/PromptLibraryPage";
 import RelayPage from "./pages/RelayPage";
+import SceneSplitPage from "./pages/SceneSplitPage";
 import StoryPage from "./pages/StoryPage";
 import StoryboardPage from "./pages/StoryboardPage";
 
@@ -16,8 +17,9 @@ export default function App() {
           <Route path="/relay" element={<RelayPage />} />
           <Route path="/presets" element={<PresetsPage />} />
           <Route path="/story" element={<StoryPage />} />
-          <Route path="/gallery" element={<GalleryPage />} />
+          <Route path="/scenes" element={<SceneSplitPage />} />
           <Route path="/board" element={<StoryboardPage />} />
+          <Route path="/gallery" element={<GalleryPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

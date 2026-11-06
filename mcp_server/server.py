@@ -255,6 +255,51 @@ def scenes_generate(project_id: str, scene_ids: list[str] | None = None, seed: i
     return _request("POST", f"/api/projects/{project_id}/scenes/generate", json={"scene_ids": scene_ids, "seed": seed, "profile": profile})
 
 
+@server.tool(description="列出项目的分镜任务。")
+def task_list(project_id: str) -> Any:
+    return _request("GET", f"/api/projects/{project_id}/tasks")
+
+
+@server.tool(description="获取分镜任务详情（含页、来源场景、画风/角色快照）。")
+def task_get(task_id: str) -> Any:
+    return _request("GET", f"/api/tasks/{task_id}")
+
+
+@server.tool(description="从场景创建分镜任务；同场景已有任务会被覆盖。page_count 仅漫画模式生效。")
+def task_create(
+    project_id: str,
+    scene_id: str,
+    page_count: int = 1,
+    style_preset_id: str | None = None,
+    character_ids: list[str] | None = None,
+) -> Any:
+    return _request(
+        "POST",
+        f"/api/projects/{project_id}/tasks",
+        json={
+            "scene_id": scene_id,
+            "page_count": page_count,
+            "style_preset_id": style_preset_id,
+            "character_ids": character_ids,
+        },
+    )
+
+
+@server.tool(description="删除分镜任务及其页、图片、任务记录。")
+def task_delete(task_id: str) -> Any:
+    return _request("DELETE", f"/api/tasks/{task_id}")
+
+
+@server.tool(description="在分镜任务末尾追加一页。")
+def task_add_page(task_id: str) -> Any:
+    return _request("POST", f"/api/tasks/{task_id}/pages")
+
+
+@server.tool(description="把分镜任务的全部页加入本地生成队列。")
+def task_generate(task_id: str, seed: int | None = None) -> Any:
+    return _request("POST", f"/api/tasks/{task_id}/generate", json={"seed": seed})
+
+
 @server.tool(description="保存项目故事文本。")
 def story_set(project_id: str, story: str) -> Any:
     return _request("POST", f"/api/projects/{project_id}/story", json={"story": story})
@@ -369,9 +414,11 @@ def schema_get() -> dict[str, Any]:
         "workflow": [
             "project_create(title, story)",
             "character_upsert(project_id, body)",
-            "storyboard_save(project_id, pages)",
+            "scene_create(project_id, title, summary, excerpt)",
+            "task_create(project_id, scene_id, page_count, style_preset_id, character_ids)",
+            "task_get(task_id)",
             "prompt_compose(page_id, entry_ids, character_ids)",
-            "generate_page(page_id, seed)",
+            "task_generate(task_id)",
             "job_status(job_id)",
             "gallery_list(project_id)",
         ],

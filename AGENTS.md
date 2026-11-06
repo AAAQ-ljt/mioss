@@ -4,7 +4,7 @@
 
 ## 1. 项目定位
 
-把 NovelAI 法典（quicktagcloud）变成 MOSS 可用的画面词库，围绕“故事 → 分镜页 → 提示词 → 出图 → 画廊”做一套本地漫画生产工具。
+把 NovelAI 法典（quicktagcloud）变成 MOSS 可用的画面词库，围绕“故事 → 场景拆分 → 分镜任务 → 提示词 → 出图 → 画廊”做一套本地漫画生产工具。
 
 核心链路：
 
@@ -35,10 +35,11 @@
 | 词库范围 | 全部法典分批导入；分类与网站一致；按 release 增量更新 |
 | 提示词 | tag-first；清洗 NAI 语法；不做强制翻译 |
 | 画廊 | 一个项目一个 `images/` 文件夹；直接扫描图片文件；页序/文件时间排序；大中小图标；批量删除、右键下载、灯箱翻页 |
-| 页面结构 | 6 个路由：/ 检索、/relay 中转站、/presets 预设、/story 故事、/gallery 画廊、/board 分镜台；深色漫画编辑部后台布局 |
+| 页面结构 | 7 个路由：/ 检索、/relay 中转站、/presets 预设、/story 故事、/scenes 场景拆分、/board 分镜台、/gallery 画廊；深色漫画编辑部后台布局 |
 | SD 权重 | `{}` 每层 ×1.05，`[]` 每层 ×0.95，数字权重精确转 `(tag:权重)`；负权重进负面提示词 |
 | 中转站 | 首页复制即入中转站；可组合、删除、清空、再复制 |
-| 故事 | 一个项目一个文件夹；每章一个独立 Markdown 文件；编辑器按章节切换并自动保存 |
+| 故事 | 一个项目一个文件夹；每章一个独立 Markdown 文件；故事页只负责写作，场景与拆分在 `/scenes` |
+| 分镜任务 | 一个场景对应一个任务；任务记录来源场景、画风/角色快照，可含多页；重拆直接覆盖旧任务 |
 | 参考项目 | `NovelAI-Tag-local-v1.5.0/` 只读；可参考其 tools 思路，禁止修改与依赖 |
 
 ## 3. 目录约定
@@ -81,7 +82,7 @@ https://novelai.quicktagcloud.com/data/current.json
 - `tag_zh/*.json` 的 `d` 映射用于中文搜索（英文 tag → 中文）。
 - 同步按 contentHash / release 增量；记录 `synced_at`。
 - 法典数量与规模（当前）：约 15 本、6.2 万条（含 R18）；所长的非 R18 为 6043 + 304 条。
-- R18 本地自用默认显示：后端 API 仍支持 `include_nsfw`，前端检索页和分镜台默认开启 R18，MCP 的 `codex_search` / `prompt_compose` 默认 `include_nsfw=true`；需要安全浏览时显式关闭。
+- R18 本地自用默认显示：后端 API 仍支持 `include_nsfw`，检索页默认常规库，分镜台不设内容分级（只负责分镜、提示词与出图），MCP 的 `codex_search` / `prompt_compose` 默认 `include_nsfw=true`；需要安全浏览时显式关闭。
 - 内容分级仍保留 `rating` 字段；R18 法典和条目不会被删除，只是在关闭开关时隐藏。
 - 法典原文与配图版权归原编纂者；不要把 SQLite、缩略图、原图打进公开仓库或再分发。
 
@@ -147,7 +148,8 @@ hyulla（画师）, artist:ahemaru（画师）
 - `story_doc(project_id, title, markdown, updated_at)`
 - `project(id, title, story, style_preset_id, gallery_sort, mode, created_at, updated_at)`（mode: illustration / comic）
 - `chapter(id, project_id, title, order_no, summary, file_name, updated_at)`（正文存 `chapters/file_name`，DB 只存元数据与摘要）
-- `page(id, chapter_id, order_no, summary, layout_note, prompt, negative, seed, status, image_path, kind, scene_id, created_at, updated_at)`
+- `storyboard_task(id, project_id, scene_id, chapter_title, title, kind, style_preset_id, style_snapshot_json, character_snapshot_json, created_at, updated_at)`（一个场景最多一个任务）
+- `page(id, chapter_id, task_id, shot_no, order_no, summary, layout_note, prompt, negative, seed, status, image_path, kind, scene_id, created_at, updated_at)`
 - `story_scene(id, project_id, chapter_title, chapter_index, order_no, title, excerpt, summary, characters, setting, mood, status, page_id, created_at, updated_at)`
 - `character(id, project_id, name, anchor_tags, ref_image, notes)`
 - `style_preset(id, name, tags)`
@@ -176,7 +178,8 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - `project_export(project_id)` / `project_import(payload)`
 - `style_presets_list()`
 - `story_set(project_id, text)`
-- `storyboard_save(project_id, pages_json)`：校验 schema，拒绝不存在的 entry_id。
+- `storyboard_save(project_id, pages_json)`：旧版整板保存；新流程用场景任务。
+- `task_list(project_id)` / `task_get(task_id)` / `task_create(project_id, scene_id, page_count, style_preset_id?, character_ids?)` / `task_delete(task_id)` / `task_add_page(task_id)` / `task_generate(task_id)`
 - `page_list(project_id)` / `page_get(page_id)` / `page_update(page_id, patch)` / `page_duplicate(page_id)` / `page_delete(page_id)`
 - `project_reorder(project_id, page_ids)`
 - `gallery_list(project_id, sort="order"|"time")` → 项目 `images/` 文件列表（path/url/page_id/order_no）
@@ -214,7 +217,7 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 
 - 中文界面，英文 tag 保留原文；桌面优先，最小 1280 宽。
 - 视觉方向：漫画编辑部，不是通用 AI 后台。墨黑底、纸白画布、朱红强调色；细网格/网点纹理；故事正文用衬线中文字体，tag 用等宽字体；不要紫色渐变/玻璃拟态。
-- 布局：左侧固定导航（检索 / 中转站 / 预设 / 故事 / 分镜台）；顶部库切换、搜索、格式切换；内容区独立滚动。
+- 布局：左侧固定导航（检索 / 中转站 / 预设 / 故事 / 场景拆分 / 分镜台 / 画廊）；故事页只写作，场景页拆分并创建任务，分镜台按任务编辑页并出图。
 - 首页检索：分类树、图片瀑布流、右侧详情；复制支持 NAI / MOSS / SD 权重三种格式，复制即入中转站。检索默认全库，不按来源法典筛选。
 - 中转站：左栏常规收藏、右栏 NSFW 收藏，跨栏多选，底部组合条统一组合/复制；收藏为快照，不依赖复制。
 - 页面详情必须展示：最终正向、负向、选中的法典条目、被过滤的 tag 及原因、seed、状态。
@@ -226,7 +229,7 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - **M1**：项目/章节/页数据模型；手动页编辑；提示词编译；单页出图 + 队列/历史 + 项目画廊。
 - **M2**：MCP 完整闭环（分镜保存 → 选词 → 出图）；角色圣经；连续性台账；批量生成。
 - **M3**：画廊完善（时间/内容排序、项目文件夹管理）；模型 profile 校准；参考图一致性；更多风格预设。
-- **M4**：五路由后台重构；分类完整路径；SD 权重转换；中转站、预设库、故事 Markdown、分镜台整合。
+- **M4**：多路由后台重构；分类完整路径；SD 权重转换；中转站、预设库、故事 Markdown、场景拆分、分镜台整合。
 
 ## 11. 智能体工作规则
 
@@ -260,23 +263,26 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - M3 稳定性增强：后端启动会恢复 queued/running 任务，能从 ComfyUI history 找回产物；找不到的标记 failed，避免 UI 卡住。
 - M3 易用性增强：单页生成也会自动补齐空提示词；全局 mutation 错误 toast；Ctrl+Enter 生成当前页；health/status 显示最近同步时间。
 - M3 词库导出：`tools/export_prompts.py` 可导出 MOSS 可用、默认排除 R18 和画师词典的 JSONL/CSV 词库。
-- M4 已完成：五路由后台（检索/中转站/预设/故事/分镜台）；分类按完整路径过滤；NAI/MOSS/SD 三种复制格式；复制即入中转站；预设库与分镜台应用；项目绑定 Markdown 小说与章节解析。
+- M4 已完成：七路由后台（检索/中转站/预设/故事/场景拆分/分镜台/画廊）；分类按完整路径过滤；NAI/MOSS/SD 三种复制格式；复制即入中转站；预设库与分镜台应用；项目绑定 Markdown 小说与章节解析。
 - M4 检索修复：关键词为空时可按法典/分类浏览，不再回到空结果；首页默认不预填“森林”。
-- M4 本地分级默认：检索页和分镜台默认“常规”库，可一键切 NSFW/参考；MCP 搜索/编译仍默认 `include_nsfw=true`。
+- M4 本地分级默认：检索页默认常规库；分镜台不设内容分级，只处理分镜任务、提示词与出图；MCP 搜索/编译仍默认 `include_nsfw=true`。
 - M4 分类重构：已切到常规/NSFW/参考三库；常规 8 类、NSFW 7 类（R18G/重口 1052 条已硬删除）；旧分类保留溯源；分类器统计为常规 17631、NSFW 19462、画师参考 23834。
 - M4 来源筛选移除：检索页和分镜台不再按法典来源过滤，默认全库；后续同步会跳过 `nsfw_extreme` 条目。
 - M4 收藏中转站：检索卡片心形收藏（快照），TAG 中转站左常规/右 NSFW 双栏，跨栏多选，底部组合条支持 NAI/MOSS/SD 和复制；旧 relay_item 已清空停用。
 - M4 配方库：预设升级为风格/角色/负面/场景/组合配方，支持预览、seed、使用次数、版本；项目级绑定后自动进入页提示词，页面未设 seed/profile 时继承配方默认。
-- M4 故事与画廊：项目分 illustration/comic；Markdown 标题+`---`切场景；场景可生成插图或分镜页；画廊独立为 `/gallery`，按模式/项目查看；分镜台只显示漫画项目。
-- M4 故事工作台：新建作品改为右侧抽屉（标题/模式/风格/作品管理），支持单删和批量删；章节支持弹窗新增和拖拽排序；编辑器/预览自定义右键菜单（复制/粘贴/转移到场景/顶部跳转）；场景卡片支持新增/删除/修改/生成/跳转分镜台。
+- M4 故事与画廊：项目分 illustration/comic；故事页只写作与建场景；画廊独立为 `/gallery`，按模式/项目查看；分镜台按任务显示所有项目，不限漫画模式。
+- M4 故事工作台：新建作品改为右侧抽屉（标题/模式/风格/作品管理），支持单删和批量删；章节支持弹窗新增和拖拽排序；编辑器/预览自定义右键菜单（复制/粘贴/送入场景拆分/顶部跳转）；工具栏新增“送入选区到场景拆分”，场景面板已从故事页移除。
 - M4 章节文件化：章节正文存 `projects/<project_id>/chapters/chapter-<id>.md`，DB 只存元数据；编辑器按章节切换渲染，800ms 防抖自动保存，切章/切作品/离开页面前强制落盘，不再有保存按钮。
-- M4 场景批量操作：故事页右侧提供全选、批量删除、跳转；跳转前自动为选中场景建页并带 `scene` 参数打开分镜台；已移除场景顶部“生成选中/自动全部”，批量出图统一在分镜台完成。
+- M4 场景拆分：新增 `/scenes`，按章节列出场景/事件，编辑原文、地点、情绪、角色备注；可设页数、画风、角色锚点并创建分镜任务；重新拆分直接覆盖旧任务，旧任务页与图片移入回收目录。
+- M4 分镜任务：`storyboard_task` 记录来源场景、画风快照、角色锚点快照；页通过 `task_id`/`shot_no` 归属任务。出图统一保存到 `projects/<project_id>/images/mioss_<project>_<task>_p<页号>_*.png`，每张图可反查任务与页。
+- M4 分镜台重写：左栏任务、中间页缩略图网格、右侧页检查器（内容/提示词/出图），支持页面自动保存、任务内加页、多选批量生成/删除、任务全量生成、法典抽屉、变体选择；不再包含故事正文、角色录入、项目新建。
 - M4 删除安全：删除项目时整目录移入 `projects/_trash/<id>-<时间>`，不再留孤儿图片与章节文件。
 - M4 画廊文件化：画廊直接扫描 `projects/<id>/images/`，支持页序/文件时间排序、大中小图标（默认中，localStorage 记忆）、批量选择删除、右键删除/下载、灯箱放大与左右/键盘翻页；删除图片移入 `projects/_trash_images/`，对应页面图片链接清空并回到 `draft`。
 - 当前数据已清空：项目 0、故事 0、分镜页 0、配方 0、收藏 0；测试图在 `data/_trash_projects_*`，数据库备份在 `data/backups/`。
 - 当前数据再次清空（故事工作台验收后）：项目 0、场景 0、页 0、配方 0、收藏 0；备份 `moss-20261106-173550.db`，测试图在最新 `data/_trash_projects_*`。
 - 2026-11-06 章节文件重构验收：49 个后端测试通过；浏览器验证章节新增/切换/800ms 自动保存/切章落盘、项目新建切换、场景全选/批量删除/跳转、作品批量删除；验证项目已删除并移入 `projects/_trash/`，当前仅保留用户 `demo` 项目；备份 `moss-20261106-175635.db`。`projects/` 下仍有早期无 DB 记录的历史测试文件夹，未清理。
 - 2026-11-06 画廊重构验收：清理 demo 内切分测试残留（章节 12/42、scian 失败页、旧 story_doc 文本），备份 `moss-20261106-180434.db`；51 个后端测试通过；浏览器验证 5 张真实 PNG 的页序/时间排序、大中小图标、灯箱左右/键盘翻页、右键删除、批量全选删除、下载响应头；临时项目与测试图已清理，当前仅保留 `demo`。
+- 2026-11-06 场景/分镜任务重构：数据库迁移 11（storyboard_task、page.task_id、page.shot_no）；故事页送选区建场景；`/scenes` 创建 3 页任务并由浏览器验证分镜台任务列表、页网格、页切换、800ms 自动保存、提示词快照（画风+角色锚点）、任务内加页、重新拆分覆盖；备份 `moss-20261106-182359.db`；测试项目已删除，当前项目/任务/页均为 0。
 - 法典抓取已验证；`data/raw/` 和 `_scrape/` 有原始 JSON；数据库在 `data/moss.db`。
 - 本机可跑工作流为 14 节点单次 MOSS；ComfyUI 烟测成功，848×1488、seed 12345、约 90 秒出图。
 - 当前默认 profile 出图偏彩色电影感动漫；同 seed 校准显示 `manga-ink` 风格块能出多格黑白漫画页，自然语言也能出高质量单页。漫画项目默认应切到 `manga-ink`，封面/插画可保留 `cinematic-anime`。

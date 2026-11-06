@@ -1,15 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { api, type Chapter, type ChapterDetail, type Project, type StoryScene, type StylePreset } from "../api";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { api, type Chapter, type ChapterDetail, type Project, type StylePreset } from "../api";
 import { copyText } from "../utils/clipboard";
 
 type ContextMenu = { x: number; y: number; text: string; start: number; end: number; target: "editor" | "preview" } | null;
 
 export default function StoryPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const editorRef = useRef<HTMLTextAreaElement>(null);
-  const [projectId, setProjectId] = useState("");
+  const [projectId, setProjectId] = useState(searchParams.get("project") || "");
   const [chapterId, setChapterId] = useState("");
   const [content, setContent] = useState("");
   const [savedContent, setSavedContent] = useState("");
@@ -19,7 +22,6 @@ export default function StoryPage() {
   const saveSeqRef = useRef(0);
   const latestRef = useRef({ chapterId: "", content: "", savedContent: "" });
   const [viewMode, setViewMode] = useState<"edit" | "preview">("edit");
-  const [selectedScenes, setSelectedScenes] = useState<string[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("新作品");
   const [newMode, setNewMode] = useState<"illustration" | "comic">("illustration");
@@ -60,7 +62,6 @@ export default function StoryPage() {
     setSavedContent("");
     setLoadedChapterId("");
     setChapterId("");
-    setSelectedScenes([]);
   }, [projectId]);
 
   const chaptersQuery = useQuery({
@@ -83,12 +84,6 @@ export default function StoryPage() {
     queryKey: ["chapter", chapterId],
     queryFn: () => api<ChapterDetail>(`/api/chapters/${chapterId}`),
     enabled: !!chapterId,
-  });
-
-  const scenesQuery = useQuery({
-    queryKey: ["scenes", projectId],
-    queryFn: () => api<StoryScene[]>(`/api/projects/${projectId}/scenes`),
-    enabled: !!projectId,
   });
 
   useEffect(() => {
@@ -287,62 +282,48 @@ export default function StoryPage() {
     onError: () => setNotice("保存失败，未导入章节"),
   });
 
-  const createScene = useMutation({
-    mutationFn: (payload: Partial<StoryScene>) => api<StoryScene>(`/api/projects/${projectId}/scenes`, { method: "POST", body: JSON.stringify(payload) }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["scenes", projectId] }),
-  });
-
-  const deleteScene = useMutation({
-    mutationFn: (id: string) => api(`/api/scenes/${id}`, { method: "DELETE" }),
-    onSuccess: (_data, id) => {
-      setSelectedScenes((current) => current.filter((sceneId) => sceneId !== id));
-      queryClient.invalidateQueries({ queryKey: ["scenes", projectId] });
-    },
-  });
-
-  const batchDeleteScenes = useMutation({
-    mutationFn: () => api(`/api/projects/${projectId}/scenes/batch_delete`, { method: "POST", body: JSON.stringify({ scene_ids: selectedScenes }) }),
-    onSuccess: () => {
-      setSelectedScenes([]);
-      queryClient.invalidateQueries({ queryKey: ["scenes", projectId] });
-    },
-  });
-
-  const updateScene = useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: Partial<StoryScene> }) =>
-      api<StoryScene>(`/api/scenes/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["scenes", projectId] }),
-  });
-
-  const generateScene = useMutation({
-    mutationFn: (sceneId: string) =>
-      api<{ pages: unknown[] }>(`/api/projects/${projectId}/scenes/generate`, {
+  const sendScene = useMutation({
+    mutationFn: async (text: string) => {
+      const excerpt = text.trim();
+      if (!excerpt) throw new Error("empty selection");
+      if (!(await flushChapter())) throw new Error("chapter save failed");
+      const chapter = chaptersQuery.data?.find((item) => item.id === chapterId);
+      const firstLine = excerpt.split("\n").find((line) => line.trim())?.trim() || "";
+      const title = firstLine.replace(/^#+\s*/, "").slice(0, 40) || "新场景";
+      return api<{ id: string }>(`/api/projects/${projectId}/scenes`, {
         method: "POST",
-        body: JSON.stringify({ scene_ids: [sceneId] }),
-      }),
-    onSuccess: () => {
-      setNotice("已加入生成队列");
-      queryClient.invalidateQueries({ queryKey: ["scenes", projectId] });
+        body: JSON.stringify({
+          title,
+          summary: excerpt.slice(0, 500),
+          excerpt,
+          chapter_title: chapter?.title || "",
+          chapter_index: chapter?.order_no || 0,
+        }),
+      });
+    },
+    onSuccess: (scene) => {
+      navigate(`/scenes?project=${projectId}&scene=${scene.id}`);
+    },
+    onError: (error) => {
+      setNotice(String(error).includes("empty selection") ? "先选中一段文字" : "创建场景失败");
     },
   });
 
-  function toggleScene(id: string) {
-    setSelectedScenes((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
-  }
-
-  function toggleAllScenes() {
-    const all = scenesQuery.data || [];
-    setSelectedScenes(selectedScenes.length === all.length ? [] : all.map((scene) => scene.id));
-  }
-
-  async function jumpToBoard(sceneIds: string[]) {
-    if (!sceneIds.length) return;
-    try {
-      await api(`/api/projects/${projectId}/scenes/pages`, { method: "POST", body: JSON.stringify({ scene_ids: sceneIds }) });
-    } catch {
-      // 页面已存在或创建失败时仍然跳转
+  function getSelectedText() {
+    const editor = editorRef.current;
+    if (viewMode === "edit" && editor && editor.selectionStart !== editor.selectionEnd) {
+      return editor.value.slice(editor.selectionStart, editor.selectionEnd);
     }
-    window.location.href = `/board?project=${projectId}&scene=${sceneIds[0]}`;
+    return window.getSelection()?.toString() || "";
+  }
+
+  function sendSelectionToScenes() {
+    const text = getSelectedText();
+    if (!text.trim()) {
+      setNotice("先选中一段文字");
+      return;
+    }
+    sendScene.mutate(text);
   }
 
   function dropChapter(targetIndex: number) {
@@ -383,18 +364,8 @@ export default function StoryPage() {
 
   function transferToScene() {
     if (!menu?.text.trim()) return;
-    const text = menu.text.trim();
-    const title = text.split("\n").find((line) => line.trim())?.trim().slice(0, 40) || "新场景";
-    createScene.mutate({
-      title,
-      summary: text.slice(0, 500),
-      excerpt: text,
-      chapter_title: chaptersQuery.data?.find((chapter) => chapter.id === chapterId)?.title || "",
-    });
-    setNotice("已转移到右侧场景");
+    sendScene.mutate(menu.text);
   }
-
-  const currentChapter = chaptersQuery.data?.find((chapter) => chapter.id === chapterId);
 
   return (
     <div className="flex h-screen flex-col">
@@ -413,13 +384,16 @@ export default function StoryPage() {
         <button className="border border-[#e4572e] px-3 py-2 text-sm text-[#e4572e]" onClick={() => setDrawerOpen(true)}>
           新建作品
         </button>
+        <a className="border border-white/20 px-3 py-2 text-sm" href={`/scenes?project=${projectId}`}>
+          场景拆分
+        </a>
         <a className="border border-white/20 px-3 py-2 text-sm" href="/gallery">
           去画廊
         </a>
         {notice && <span className="mono text-xs text-[#ffb4a0]">{notice}</span>}
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[200px_minmax(0,1fr)_440px] gap-3 px-3 pb-3">
+      <div className="grid min-h-0 flex-1 grid-cols-[200px_minmax(0,1fr)] gap-3 px-3 pb-3">
         <aside className="panel min-h-0 overflow-auto p-3">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-sm font-medium">章节目录</span>
@@ -461,6 +435,14 @@ export default function StoryPage() {
                   }}
                 />
               </label>
+              <button
+                className="border border-[#e4572e] px-3 py-1 text-sm text-[#e4572e] disabled:opacity-40"
+                disabled={!projectId || sendScene.isPending}
+                onClick={sendSelectionToScenes}
+                title="把编辑器或预览中选中的文字创建为场景，并打开场景拆分页"
+              >
+                送入选区到场景拆分
+              </button>
               <span className="mono text-xs opacity-50">
                 {saveState === "saving" ? "保存中…" : saveState === "dirty" ? "未保存" : "已保存"}
               </span>
@@ -490,80 +472,6 @@ export default function StoryPage() {
           )}
         </section>
 
-        <aside className="panel flex min-h-0 flex-col p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium">场景</div>
-              <div className="mono text-xs opacity-50">{mode === "illustration" ? "一场景一张插图" : "一场景一页分镜"}</div>
-            </div>
-            <div className="flex gap-1">
-              <button className="border border-white/20 px-2 py-1 text-xs" onClick={toggleAllScenes}>
-                {selectedScenes.length === (scenesQuery.data?.length || 0) && selectedScenes.length ? "取消全选" : "全选"}
-              </button>
-              <button className="border border-white/20 px-2 py-1 text-xs" onClick={() => createScene.mutate({ title: "新场景", summary: "", chapter_title: currentChapter?.title || "" })}>
-                新增
-              </button>
-              <button
-                className="border border-white/20 px-2 py-1 text-xs text-red-300 disabled:opacity-40"
-                disabled={!selectedScenes.length}
-                onClick={() => window.confirm(`删除选中的 ${selectedScenes.length} 个场景？`) && batchDeleteScenes.mutate()}
-              >
-                批量删除
-              </button>
-              <button
-                className="border border-[#e4572e] px-2 py-1 text-xs text-[#e4572e] disabled:opacity-40"
-                disabled={!selectedScenes.length}
-                onClick={() => jumpToBoard(selectedScenes)}
-              >
-                跳转
-              </button>
-            </div>
-          </div>
-          <div className="min-h-0 flex-1 overflow-auto">
-            {scenesQuery.data?.map((scene) => (
-              <div key={scene.id} className={`mb-2 border p-2 ${selectedScenes.includes(scene.id) ? "border-[#e4572e]/60" : "border-white/10"}`}>
-                <div className="flex items-start gap-2">
-                  <input type="checkbox" className="mt-1" checked={selectedScenes.includes(scene.id)} onChange={() => toggleScene(scene.id)} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <input
-                        className="min-w-0 flex-1 bg-transparent text-sm font-medium outline-none"
-                        defaultValue={scene.title}
-                        onBlur={(event) => updateScene.mutate({ id: scene.id, patch: { title: event.target.value } })}
-                      />
-                      <span className="mono text-xs opacity-40">{scene.status}</span>
-                    </div>
-                    <textarea
-                      className="mt-1 h-20 w-full resize-none bg-black/25 p-2 text-xs outline-none"
-                      defaultValue={scene.summary}
-                      onBlur={(event) => updateScene.mutate({ id: scene.id, patch: { summary: event.target.value } })}
-                    />
-                    <div className="mt-1 grid grid-cols-2 gap-1">
-                      <input
-                        className="bg-black/25 px-2 py-1 text-xs outline-none"
-                        defaultValue={scene.setting || ""}
-                        placeholder="地点/环境"
-                        onBlur={(event) => updateScene.mutate({ id: scene.id, patch: { setting: event.target.value } })}
-                      />
-                      <input
-                        className="bg-black/25 px-2 py-1 text-xs outline-none"
-                        defaultValue={scene.mood || ""}
-                        placeholder="情绪"
-                        onBlur={(event) => updateScene.mutate({ id: scene.id, patch: { mood: event.target.value } })}
-                      />
-                    </div>
-                    <div className="mt-2 flex gap-1">
-                      <button className="border border-white/20 px-2 py-1 text-xs" onClick={() => generateScene.mutate(scene.id)}>生成</button>
-                      <button className="border border-white/20 px-2 py-1 text-xs" onClick={() => jumpToBoard([scene.id])}>跳转</button>
-                      <button className="border border-white/20 px-2 py-1 text-xs text-red-300" onClick={() => deleteScene.mutate(scene.id)}>删除</button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-            {!scenesQuery.data?.length && <div className="mt-10 text-center text-xs opacity-40">选中文字右键“转移到场景”或点新增</div>}
-          </div>
-        </aside>
       </div>
 
       {drawerOpen && (

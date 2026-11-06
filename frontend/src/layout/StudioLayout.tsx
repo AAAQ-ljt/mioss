@@ -5,8 +5,9 @@ const items = [
   { to: "/relay", label: "TAG 中转站", hint: "组合与整理" },
   { to: "/presets", label: "配方库", hint: "风格 / 角色 / 锁定" },
   { to: "/story", label: "故事整理", hint: "小说 Markdown" },
+  { to: "/scenes", label: "场景拆分", hint: "场景/事件 → 分镜任务" },
+  { to: "/board", label: "分镜台", hint: "任务、提示词、出图" },
   { to: "/gallery", label: "画廊", hint: "插图与漫画成品" },
-  { to: "/board", label: "分镜台", hint: "页、角色、出图" },
 ];
 
 export default function StudioLayout() {
@@ -15,7 +16,7 @@ export default function StudioLayout() {
       <aside className="halftone w-64 shrink-0 border-r border-white/10 bg-[#121419]">
         <div className="border-b border-white/10 px-5 py-5">
           <div className="serif text-xl font-semibold">MOSS 漫画工坊</div>
-          <div className="mt-1 text-xs opacity-50">法典 → 中转 → 预设 → 故事 → 分镜</div>
+          <div className="mt-1 text-xs opacity-50">法典 → 中转 → 预设 → 故事 → 场景 → 分镜</div>
         </div>
         <nav className="p-3">
           {items.map((item) => (

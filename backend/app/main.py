@@ -11,7 +11,7 @@ import sqlite3
 
 from .config import ensure_dirs, FRONTEND_DIST, PROJECTS_DIR
 from .db import connect, migrate
-from .services import codex, comfy, favorites, gallery, jobs, projects, prompt, studio, thumbs
+from .services import codex, comfy, favorites, gallery, jobs, projects, prompt, studio, tasks, thumbs
 
 
 @asynccontextmanager
@@ -522,6 +522,69 @@ def delete_chapter(chapter_id: str, conn: sqlite3.Connection = Depends(get_conn)
     if not studio.delete_chapter(conn, chapter_id):
         raise HTTPException(status_code=404, detail="chapter not found")
     return {"deleted": chapter_id}
+
+
+@app.get("/api/projects/{project_id}/tasks")
+def list_storyboard_tasks(project_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    if not projects.get_project(conn, project_id):
+        raise HTTPException(status_code=404, detail="project not found")
+    return tasks.list_tasks(conn, project_id)
+
+
+@app.post("/api/projects/{project_id}/tasks")
+def create_storyboard_task(project_id: str, body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    scene_id = body.get("scene_id")
+    if not scene_id:
+        raise HTTPException(status_code=400, detail="scene_id required")
+    character_ids = body.get("character_ids")
+    if character_ids is not None and not isinstance(character_ids, list):
+        raise HTTPException(status_code=400, detail="character_ids must be a list")
+    task = tasks.create_task(
+        conn,
+        project_id,
+        scene_id,
+        page_count=int(body.get("page_count", 1)),
+        style_preset_id=body.get("style_preset_id"),
+        character_ids=character_ids,
+    )
+    if not task:
+        raise HTTPException(status_code=404, detail="project or scene not found")
+    return task
+
+
+@app.get("/api/tasks/{task_id}")
+def get_storyboard_task(task_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    task = tasks.get_task(conn, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    return task
+
+
+@app.delete("/api/tasks/{task_id}")
+def delete_storyboard_task(task_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    if not tasks.delete_task(conn, task_id):
+        raise HTTPException(status_code=404, detail="task not found")
+    return {"deleted": task_id}
+
+
+@app.post("/api/tasks/{task_id}/pages")
+def add_storyboard_task_page(task_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    page = tasks.add_task_page(conn, task_id)
+    if not page:
+        raise HTTPException(status_code=404, detail="task not found")
+    return page
+
+
+@app.post("/api/tasks/{task_id}/generate")
+def generate_storyboard_task(task_id: str, body: dict[str, Any] | None = None, conn: sqlite3.Connection = Depends(get_conn)):
+    task = tasks.get_task(conn, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    body = body or {}
+    page_ids = [page["id"] for page in task["pages"]]
+    if page_ids:
+        jobs.generate_pages(page_ids, seed=body.get("seed"), profile=body.get("profile"))
+    return {"task_id": task_id, "page_ids": page_ids, "status": "started" if page_ids else "empty"}
 
 
 @app.get("/api/projects/{project_id}/story")

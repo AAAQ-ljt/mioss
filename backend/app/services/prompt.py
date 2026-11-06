@@ -44,16 +44,20 @@ def compose_prompt(
     project_id: str | None = None,
     character_ids: list[str] | None = None,
     continuity_text_value: str = "",
+    style_text: str | None = None,
 ) -> dict[str, Any]:
-    style = conn.execute("SELECT tags FROM style_preset WHERE id = ?", (style_preset_id,)).fetchone()
     positive_parts: list[str] = []
     negative_parts: list[str] = [DEFAULT_NEGATIVE, negative_text]
     dropped: list[dict[str, str]] = []
 
-    if style:
-        positive_parts.append(style["tags"])
+    if style_text:
+        positive_parts.append(style_text)
     else:
-        dropped.append({"id": style_preset_id, "reason": "style_not_found"})
+        style = conn.execute("SELECT tags FROM style_preset WHERE id = ?", (style_preset_id,)).fetchone()
+        if style:
+            positive_parts.append(style["tags"])
+        else:
+            dropped.append({"id": style_preset_id, "reason": "style_not_found"})
 
     if character_text:
         positive_parts.append(character_text)
@@ -123,10 +127,27 @@ def compose_for_page(
     if not row:
         return None
     page = dict(row)
+    task = None
+    if page.get("task_id"):
+        task_row = conn.execute("SELECT * FROM storyboard_task WHERE id = ?", (page["task_id"],)).fetchone()
+        task = dict(task_row) if task_row else None
+    style_snapshot: dict[str, Any] = {}
+    character_snapshot: list[dict[str, Any]] = []
+    if task:
+        try:
+            style_snapshot = json.loads(task.get("style_snapshot_json") or "{}")
+        except json.JSONDecodeError:
+            style_snapshot = {}
+        try:
+            character_snapshot = json.loads(task.get("character_snapshot_json") or "[]")
+        except json.JSONDecodeError:
+            character_snapshot = []
 
     resolved_entry_ids = entry_ids if entry_ids is not None else json.loads(page.get("refs_json") or "[]")
     if character_ids is None:
-        if page.get("character_ids_json") is None:
+        if page.get("character_ids_json") is None and task:
+            character_ids = [item.get("id") for item in character_snapshot if item.get("id")]
+        elif page.get("character_ids_json") is None:
             character_ids = [
                 char["id"]
                 for char in conn.execute(
@@ -138,8 +159,11 @@ def compose_for_page(
             character_ids = json.loads(page.get("character_ids_json") or "[]")
 
     if style_preset_id is None:
-        project = conn.execute("SELECT style_preset_id FROM project WHERE id = ?", (page["project_id"],)).fetchone()
-        style_preset_id = project["style_preset_id"] if project else "manga-ink"
+        if task and task.get("style_preset_id"):
+            style_preset_id = task["style_preset_id"]
+        else:
+            project = conn.execute("SELECT style_preset_id FROM project WHERE id = ?", (page["project_id"],)).fetchone()
+            style_preset_id = project["style_preset_id"] if project else "manga-ink"
 
     resolved_page_text = page_text
     if resolved_page_text is None:
@@ -168,17 +192,31 @@ def compose_for_page(
 
     combined_page_text = ", ".join(filter(None, [resolved_page_text, preset_positive]))
     combined_negative = ", ".join(filter(None, [negative_text, preset_negative]))
+    snapshot_by_id = {item.get("id"): item for item in character_snapshot if item.get("id")}
+    snapshot_anchors = [
+        snapshot_by_id[character_id].get("anchor_tags") or ""
+        for character_id in character_ids
+        if character_id in snapshot_by_id
+    ]
+    prompt_character_text = character_text
+    prompt_character_ids = character_ids
+    style_text = None
+    if task:
+        prompt_character_text = ", ".join(filter(None, [character_text, *snapshot_anchors]))
+        prompt_character_ids = []
+        style_text = style_snapshot.get("tags")
     result = compose_prompt(
         conn,
         style_preset_id=style_preset_id,
         entry_ids=resolved_entry_ids,
         page_text=combined_page_text,
-        character_text=character_text,
+        character_text=prompt_character_text,
         negative_text=combined_negative,
         include_nsfw=include_nsfw,
         project_id=page["project_id"],
-        character_ids=character_ids,
+        character_ids=prompt_character_ids,
         continuity_text_value=continuity_value,
+        style_text=style_text,
     )
     result["presets"] = [
         {

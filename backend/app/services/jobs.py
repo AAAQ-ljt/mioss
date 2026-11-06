@@ -278,10 +278,12 @@ def submit_page(page_id: str, seed: int | None = None, profile: dict[str, Any] |
         resolved_seed = int(
             seed if seed is not None else page.get("seed") if page.get("seed") is not None else preset_seed or random.randint(1, 2**53)
         )
+        shot_no = int(page.get("shot_no") or page.get("order_no") or 1)
+        task_part = page.get("task_id") or "free"
         merged_profile = {
             **preset_profile,
             **(profile or {}),
-            "filename_prefix": f"mioss/{page['project_id']}/page-{int(page['order_no']):03d}",
+            "filename_prefix": f"mioss_{page['project_id']}_{task_part}_p{shot_no:03d}",
         }
         client = ComfyClient()
         try:

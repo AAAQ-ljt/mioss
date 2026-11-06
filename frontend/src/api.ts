@@ -17,6 +17,8 @@ export type RefDetail = {
 
 export type Page = {
   id: string;
+  task_id?: string | null;
+  shot_no?: number | null;
   order_no: number;
   summary: string;
   layout_note: string;
@@ -170,6 +172,35 @@ export type Chapter = {
 };
 
 export type ChapterDetail = Chapter & { content: string };
+
+export type TaskCharacterSnapshot = {
+  id: string;
+  name: string;
+  anchor_tags: string;
+};
+
+export type StoryboardTask = {
+  id: string;
+  project_id: string;
+  scene_id: string | null;
+  chapter_title: string;
+  title: string;
+  kind: "comic" | "illustration";
+  style_preset_id: string | null;
+  style_snapshot: { id?: string; name?: string; tags?: string };
+  character_snapshot: TaskCharacterSnapshot[];
+  page_count: number;
+  status: string;
+  scene_excerpt?: string;
+  scene_order?: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StoryboardTaskDetail = StoryboardTask & {
+  pages: Page[];
+  scene: StoryScene | null;
+};
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {

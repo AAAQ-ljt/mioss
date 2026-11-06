@@ -120,14 +120,16 @@ def replace_pages(conn: sqlite3.Connection, project_id: str, pages: list[dict[st
         conn.execute(
             """
             INSERT INTO page(
-              id, project_id, chapter_id, order_no, summary, layout_note, prompt, negative,
+              id, project_id, chapter_id, task_id, shot_no, order_no, summary, layout_note, prompt, negative,
               seed, status, image_path, kind, scene_id, refs_json, continuity_json, character_ids_json, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 page_id,
                 project_id,
                 page.get("chapter_id"),
+                page.get("task_id"),
+                page.get("shot_no"),
                 order_no,
                 page.get("summary", ""),
                 page.get("layout_note", ""),
@@ -153,23 +155,37 @@ def replace_pages(conn: sqlite3.Connection, project_id: str, pages: list[dict[st
 def add_page(conn: sqlite3.Connection, project_id: str, page: dict[str, Any] | None = None) -> dict[str, Any] | None:
     page = page or {}
     refs = page.get("refs") or page.get("entry_ids") or []
-    next_order = conn.execute(
-        "SELECT COALESCE(MAX(order_no), 0) + 1 AS next_order FROM page WHERE project_id = ?",
-        (project_id,),
-    ).fetchone()["next_order"]
+    task_id = page.get("task_id")
+    if task_id:
+        next_order = conn.execute(
+            "SELECT COALESCE(MAX(order_no), 0) + 1 AS next_order FROM page WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()["next_order"]
+        next_shot = conn.execute(
+            "SELECT COALESCE(MAX(shot_no), 0) + 1 AS next_shot FROM page WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()["next_shot"]
+    else:
+        next_order = conn.execute(
+            "SELECT COALESCE(MAX(order_no), 0) + 1 AS next_order FROM page WHERE project_id = ?",
+            (project_id,),
+        ).fetchone()["next_order"]
+        next_shot = None
     page_id = page.get("id") or new_id()
     timestamp = now()
     conn.execute(
         """
         INSERT INTO page(
-          id, project_id, chapter_id, order_no, summary, layout_note, prompt, negative,
+          id, project_id, chapter_id, task_id, shot_no, order_no, summary, layout_note, prompt, negative,
           seed, status, image_path, kind, scene_id, refs_json, continuity_json, character_ids_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             page_id,
             project_id,
             page.get("chapter_id"),
+            task_id,
+            int(page.get("shot_no", next_shot)) if page.get("shot_no", next_shot) is not None else None,
             int(page.get("order_no", next_order)),
             page.get("summary", "新页面"),
             page.get("layout_note", ""),
@@ -223,7 +239,7 @@ def get_page(conn: sqlite3.Connection, page_id: str) -> dict[str, Any] | None:
 
 
 def update_page(conn: sqlite3.Connection, page_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
-    allowed = {"summary", "layout_note", "prompt", "negative", "seed", "status", "image_path", "refs", "continuity", "character_ids", "kind", "scene_id"}
+    allowed = {"summary", "layout_note", "prompt", "negative", "seed", "status", "image_path", "refs", "continuity", "character_ids", "kind", "scene_id", "shot_no"}
     fields = []
     params = []
     for key, value in patch.items():
@@ -324,11 +340,21 @@ def reorder_pages(conn: sqlite3.Connection, project_id: str, page_ids: list[str]
 
 
 def delete_page(conn: sqlite3.Connection, page_id: str) -> bool:
-    row = conn.execute("SELECT project_id FROM page WHERE id = ?", (page_id,)).fetchone()
+    row = conn.execute("SELECT project_id, image_path FROM page WHERE id = ?", (page_id,)).fetchone()
     if not row:
         return False
+    if row["image_path"]:
+        try:
+            relative = Path(row["image_path"]).relative_to(PROJECTS_DIR / row["project_id"]).as_posix()
+        except ValueError:
+            relative = None
+        if relative:
+            from .gallery import delete_images
+
+            delete_images(conn, row["project_id"], [relative])
     conn.execute("DELETE FROM generation_job WHERE page_id = ?", (page_id,))
     conn.execute("DELETE FROM page WHERE id = ?", (page_id,))
+    conn.execute("UPDATE story_scene SET page_id = NULL, status = 'draft' WHERE page_id = ?", (page_id,))
     conn.execute("UPDATE project SET updated_at = datetime('now') WHERE id = ?", (row["project_id"],))
     conn.commit()
     return True
@@ -340,6 +366,10 @@ def delete_project(conn: sqlite3.Connection, project_id: str) -> bool:
         return False
     conn.execute("DELETE FROM generation_job WHERE page_id IN (SELECT id FROM page WHERE project_id = ?)", (project_id,))
     conn.execute("DELETE FROM page WHERE project_id = ?", (project_id,))
+    conn.execute("DELETE FROM storyboard_task WHERE project_id = ?", (project_id,))
+    conn.execute("DELETE FROM story_scene WHERE project_id = ?", (project_id,))
+    conn.execute("DELETE FROM story_doc WHERE project_id = ?", (project_id,))
+    conn.execute("DELETE FROM preset_binding WHERE project_id = ?", (project_id,))
     conn.execute("DELETE FROM characters WHERE project_id = ?", (project_id,))
     conn.execute("DELETE FROM chapter WHERE project_id = ?", (project_id,))
     conn.execute("DELETE FROM project WHERE id = ?", (project_id,))
@@ -371,17 +401,25 @@ def duplicate_page(conn: sqlite3.Connection, page_id: str) -> dict[str, Any] | N
         "SELECT COALESCE(MAX(order_no), 0) + 1 AS next_order FROM page WHERE project_id = ?",
         (source["project_id"],),
     ).fetchone()["next_order"]
+    next_shot = None
+    if source.get("task_id"):
+        next_shot = conn.execute(
+            "SELECT COALESCE(MAX(shot_no), 0) + 1 AS next_shot FROM page WHERE task_id = ?",
+            (source["task_id"],),
+        ).fetchone()["next_shot"]
     conn.execute(
         """
         INSERT INTO page(
-          id, project_id, chapter_id, order_no, summary, layout_note, prompt, negative,
+          id, project_id, chapter_id, task_id, shot_no, order_no, summary, layout_note, prompt, negative,
           seed, status, image_path, kind, scene_id, refs_json, continuity_json, character_ids_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             new_id_value,
             source["project_id"],
             source["chapter_id"],
+            source.get("task_id"),
+            next_shot,
             next_order,
             source["summary"],
             source["layout_note"],
