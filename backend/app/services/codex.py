@@ -78,8 +78,6 @@ def search_entries(
     limit: int = 20,
 ) -> list[dict[str, Any]]:
     q = query.strip().lower()
-    if not q and not codex_id and not category_path:
-        return []
 
     clauses: list[str] = []
     params: list[str] = []
@@ -117,7 +115,8 @@ def search_entries(
         clauses.append("(" + " OR ".join(broad) + ")")
 
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-    sql = f"SELECT e.* FROM entry e JOIN codex c ON c.id = e.codex_id {where} LIMIT 300"
+    order = "ORDER BY RANDOM()" if not q and not codex_id and not category_path else "ORDER BY e.id"
+    sql = f"SELECT e.* FROM entry e JOIN codex c ON c.id = e.codex_id {where} {order} LIMIT 300"
     rows = [dict(row) for row in conn.execute(sql, params).fetchall()]
     if not q:
         return [decorate_entry(row) for row in rows[:limit]]

@@ -27,7 +27,7 @@ def codex_search(
     codex_id: str | None = None,
     category_path: str | None = None,
     include_artist_only: bool = False,
-    include_nsfw: bool = False,
+    include_nsfw: bool = True,
     limit: int = 20,
 ) -> Any:
     params = {"q": query, "include_artist_only": include_artist_only, "include_nsfw": include_nsfw, "limit": limit}
@@ -192,7 +192,7 @@ def prompt_compose(
     page_text: str = "",
     character_text: str = "",
     negative_text: str = "",
-    include_nsfw: bool = False,
+    include_nsfw: bool = True,
     save: bool = True,
 ) -> Any:
     return _request(

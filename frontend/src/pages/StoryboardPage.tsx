@@ -46,7 +46,7 @@ export default function StoryboardPage() {
   const [query, setQuery] = useState("森林");
   const [codexFilter, setCodexFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
-  const [includeNsfw, setIncludeNsfw] = useState(false);
+  const [includeNsfw, setIncludeNsfw] = useState(true);
   const [gallerySort, setGallerySort] = useState<"order" | "time">("order");
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);

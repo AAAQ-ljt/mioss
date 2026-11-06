@@ -55,9 +55,10 @@ function CategoryTree({
 
 export default function PromptLibraryPage() {
   const [query, setQuery] = useState("");
-  const [codexFilter, setCodexFilter] = useState("suozhang");
+  const [codexFilter, setCodexFilter] = useState("");
   const [categoryPath, setCategoryPath] = useState("");
   const [format, setFormat] = useState<Format>("moss");
+  const [includeNsfw, setIncludeNsfw] = useState(true);
   const [selected, setSelected] = useState<CodexEntry | null>(null);
   const [notice, setNotice] = useState("");
 
@@ -68,8 +69,8 @@ export default function PromptLibraryPage() {
 
   useEffect(() => {
     if (!codexesQuery.data?.length) return;
-    if (!codexesQuery.data.some((codex) => codex.id === codexFilter)) {
-      setCodexFilter(codexesQuery.data.find((codex) => !codex.id.startsWith("artist_"))?.id || "");
+    if (codexFilter && !codexesQuery.data.some((codex) => codex.id === codexFilter)) {
+      setCodexFilter("");
     }
   }, [codexesQuery.data, codexFilter]);
 
@@ -87,11 +88,11 @@ export default function PromptLibraryPage() {
     queryKey: ["library-search", query, codexFilter, categoryPath],
     queryFn: () =>
       api<CodexEntry[]>(
-        `/api/codex/search?q=${encodeURIComponent(query)}&limit=60&include_nsfw=false${
+        `/api/codex/search?q=${encodeURIComponent(query)}&limit=60&include_nsfw=${includeNsfw}${
           codexFilter ? `&codex_id=${encodeURIComponent(codexFilter)}` : ""
         }${categoryPath ? `&category_path=${encodeURIComponent(categoryPath)}` : ""}`,
       ),
-    enabled: !!codexFilter || !!categoryPath,
+    enabled: true,
   });
 
   const relayMutation = useMutation({
@@ -127,7 +128,7 @@ export default function PromptLibraryPage() {
   }
 
   const codexTitle = useMemo(
-    () => codexesQuery.data?.find((codex) => codex.id === codexFilter)?.title || codexFilter,
+    () => codexesQuery.data?.find((codex) => codex.id === codexFilter)?.title || "全部法典",
     [codexesQuery.data, codexFilter],
   );
 
@@ -149,12 +150,19 @@ export default function PromptLibraryPage() {
           value={codexFilter}
           onChange={(event) => setCodexFilter(event.target.value)}
         >
+          <option value="">全部法典</option>
           {codexesQuery.data?.map((codex) => (
             <option key={codex.id} value={codex.id}>
               {codex.title} ({codex.entry_count})
             </option>
           ))}
         </select>
+        <button
+          className={`border px-3 py-2 text-sm ${includeNsfw ? "border-[#e4572e] text-[#ffb4a0]" : "border-white/20 opacity-60"}`}
+          onClick={() => setIncludeNsfw((value) => !value)}
+        >
+          R18 {includeNsfw ? "已开" : "已关"}
+        </button>
         <div className="flex border border-white/15">
           {(["nai", "moss", "sd"] as Format[]).map((item) => (
             <button
@@ -179,7 +187,7 @@ export default function PromptLibraryPage() {
           {categoriesQuery.data && (
             <CategoryTree nodes={categoriesQuery.data} parent="" onSelect={setCategoryPath} active={categoryPath} />
           )}
-          {!codexFilter && <div className="p-2 text-xs opacity-50">选择法典后显示分类</div>}
+          {!codexFilter && <div className="p-2 text-xs opacity-50">选择具体法典后显示分类</div>}
         </aside>
 
         <main className="min-h-0 overflow-auto">

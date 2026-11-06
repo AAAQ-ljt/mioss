@@ -80,7 +80,8 @@ https://novelai.quicktagcloud.com/data/current.json
 - `tag_zh/*.json` 的 `d` 映射用于中文搜索（英文 tag → 中文）。
 - 同步按 contentHash / release 增量；记录 `synced_at`。
 - 法典数量与规模（当前）：约 15 本、6.2 万条（含 R18）；所长的非 R18 为 6043 + 304 条。
-- R18 默认隐藏：既过滤 `codex.nsfw=1`，也过滤条目级 `rating` 非 `safe`（`r18` / `r18g` / `nsfw` / `restricted`）；UI/MCP 需要显式 `include_nsfw=true` 才返回。
+- R18 本地自用默认显示：后端 API 仍支持 `include_nsfw`，前端检索页和分镜台默认开启 R18，MCP 的 `codex_search` / `prompt_compose` 默认 `include_nsfw=true`；需要安全浏览时显式关闭。
+- 内容分级仍保留 `rating` 字段；R18 法典和条目不会被删除，只是在关闭开关时隐藏。
 - 法典原文与配图版权归原编纂者；不要把 SQLite、缩略图、原图打进公开仓库或再分发。
 
 ## 5. MOSS 提示词清洗规则
@@ -245,6 +246,7 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - M3 词库导出：`tools/export_prompts.py` 可导出 MOSS 可用、默认排除 R18 和画师词典的 JSONL/CSV 词库。
 - M4 已完成：五路由后台（检索/中转站/预设/故事/分镜台）；分类按完整路径过滤；NAI/MOSS/SD 三种复制格式；复制即入中转站；预设库与分镜台应用；项目绑定 Markdown 小说与章节解析。
 - M4 检索修复：关键词为空时可按法典/分类浏览，不再回到空结果；首页默认不预填“森林”。
+- M4 本地分级默认：检索页和分镜台默认 R18 开启，首页默认“全部法典”并随机混排；MCP 搜索/编译默认 `include_nsfw=true`。
 - 法典抓取已验证；`data/raw/` 和 `_scrape/` 有原始 JSON；数据库在 `data/moss.db`。
 - 本机可跑工作流为 14 节点单次 MOSS；ComfyUI 烟测成功，848×1488、seed 12345、约 90 秒出图。
 - 当前默认 profile 出图偏彩色电影感动漫；同 seed 校准显示 `manga-ink` 风格块能出多格黑白漫画页，自然语言也能出高质量单页。漫画项目默认应切到 `manga-ink`，封面/插画可保留 `cinematic-anime`。
