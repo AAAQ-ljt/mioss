@@ -139,7 +139,8 @@ hyulla（画师）, artist:ahemaru（画师）
 - `entry(id, codex_id, title, category_path_json, category_path_text, tags_raw, tags_positive, tags_negative, negative_raw, note, image, image_width, image_height, original, asset_rev, rating, is_new, moss_usable, artist_ratio, extra_json)`
 - `entry_tag(entry_id, tag, kind)`（普通 tag / 画师 / 质量词）
 - `tag_zh(tag, zh, codex_id)`
-- `relay_item(id, content, format, source_entry_id, source_title, created_at)`
+- `relay_item(id, content, format, source_entry_id, source_title, created_at)`（旧文本中转，已清空/停用）
+- `favorite_entry(id, entry_id, domain, title, image_url, source_title, prompt_nai, prompt_moss, prompt_sd_positive, negative_nai, negative_sd, created_at)`（收藏卡片快照）
 - `prompt_preset(id, name, kind, positive, negative, notes, seed, profile_json, created_at, updated_at)`
 - `story_doc(project_id, title, markdown, updated_at)`
 - `project(id, title, story, style_preset_id, gallery_sort, created_at, updated_at)`
@@ -183,6 +184,7 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - `job_list(limit?)` / `job_status(job_id)` / `job_cancel(job_id)`
 - `schema_get()`：给外部 AI 的项目/分镜 JSON schema 和用法说明
 - `relay_list(limit?)` / `relay_add(...)` / `relay_delete(id)` / `relay_clear()`
+- `favorite_list(domain?)` / `favorite_ids()` / `favorite_toggle(entry_id)` / `favorite_delete(entry_id)` / `favorite_compose(entry_ids, format)`
 - `preset_list()` / `preset_upsert(preset)` / `preset_delete(id)`
 - `story_get(project_id)` / `story_save(project_id, title, markdown)`
 
@@ -208,6 +210,7 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - 视觉方向：漫画编辑部，不是通用 AI 后台。墨黑底、纸白画布、朱红强调色；细网格/网点纹理；故事正文用衬线中文字体，tag 用等宽字体；不要紫色渐变/玻璃拟态。
 - 布局：左侧固定导航（检索 / 中转站 / 预设 / 故事 / 分镜台）；顶部库切换、搜索、格式切换；内容区独立滚动。
 - 首页检索：分类树、图片瀑布流、右侧详情；复制支持 NAI / MOSS / SD 权重三种格式，复制即入中转站。检索默认全库，不按来源法典筛选。
+- 中转站：左栏常规收藏、右栏 NSFW 收藏，跨栏多选，底部组合条统一组合/复制；收藏为快照，不依赖复制。
 - 页面详情必须展示：最终正向、负向、选中的法典条目、被过滤的 tag 及原因、seed、状态。
 - 关键交互：法典拖拽入栈、锁风格/角色、同 seed 重跑、A/B 对比、画廊按时间/内容切换、页序上下移动、删除页、点图查看。
 
@@ -239,7 +242,7 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 
 当前状态：
 
-- M0 已完成：全量法典同步 61979 条，MOSS 可用 37385 条；`sanitize_tags()` 金标测试通过；FastAPI + React 骨架可运行；MCP 已注册 38 个工具。
+- M0 已完成：全量法典同步 61979 条，MOSS 可用 37385 条；`sanitize_tags()` 金标测试通过；FastAPI + React 骨架可运行；MCP 已注册 43 个工具。
 - M1 基础闭环已验证：项目 → 角色锚点 → 页 refs → 编译提示词 → 生成 9:16 黑白多格漫画页，产物按项目文件夹归档。
 - M2 已验证：页面连续性台账、批量串行生成、前端连续性/批量控件可用；两页串行生成成功，页序和黑白漫画风格稳定。
 - M2 真实短篇验证：已用项目 API 生成 4 页《第一页·雾林考核》，角色锚点、地点/时间/服装/情绪台账和页序产物均正常。
@@ -256,6 +259,7 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - M4 本地分级默认：检索页和分镜台默认 R18 开启，首页默认“全部法典”并随机混排；MCP 搜索/编译默认 `include_nsfw=true`。
 - M4 分类重构：已切到常规/NSFW/参考三库；常规 8 类、NSFW 7 类（R18G/重口 1052 条已硬删除）；旧分类保留溯源；分类器统计为常规 17631、NSFW 19462、画师参考 23834。
 - M4 来源筛选移除：检索页和分镜台不再按法典来源过滤，默认全库；后续同步会跳过 `nsfw_extreme` 条目。
+- M4 收藏中转站：检索卡片心形收藏（快照），TAG 中转站左常规/右 NSFW 双栏，跨栏多选，底部组合条支持 NAI/MOSS/SD 和复制；旧 relay_item 已清空停用。
 - 法典抓取已验证；`data/raw/` 和 `_scrape/` 有原始 JSON；数据库在 `data/moss.db`。
 - 本机可跑工作流为 14 节点单次 MOSS；ComfyUI 烟测成功，848×1488、seed 12345、约 90 秒出图。
 - 当前默认 profile 出图偏彩色电影感动漫；同 seed 校准显示 `manga-ink` 风格块能出多格黑白漫画页，自然语言也能出高质量单页。漫画项目默认应切到 `manga-ink`，封面/插画可保留 `cinematic-anime`。

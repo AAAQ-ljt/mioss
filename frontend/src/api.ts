@@ -86,6 +86,21 @@ export type RelayItem = {
   created_at: string;
 };
 
+export type FavoriteItem = {
+  id: string;
+  entry_id: string;
+  domain: "regular" | "nsfw";
+  title: string;
+  image_url: string | null;
+  source_title: string | null;
+  prompt_nai: string;
+  prompt_moss: string;
+  prompt_sd_positive: string;
+  negative_nai: string;
+  negative_sd: string;
+  created_at: string;
+};
+
 export type PromptPreset = {
   id: string;
   name: string;

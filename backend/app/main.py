@@ -11,7 +11,7 @@ import sqlite3
 
 from .config import ensure_dirs, FRONTEND_DIST, PROJECTS_DIR
 from .db import connect, migrate
-from .services import codex, comfy, jobs, projects, prompt, studio, thumbs
+from .services import codex, comfy, favorites, jobs, projects, prompt, studio, thumbs
 
 
 @asynccontextmanager
@@ -328,6 +328,52 @@ def cancel_job(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
     return job
+
+
+@app.get("/api/favorites")
+def list_favorites(domain: str | None = None, conn: sqlite3.Connection = Depends(get_conn)):
+    return favorites.list_favorites(conn, domain)
+
+
+@app.get("/api/favorites/ids")
+def favorite_ids(conn: sqlite3.Connection = Depends(get_conn)):
+    return favorites.favorite_ids(conn)
+
+
+@app.post("/api/favorites/toggle")
+def toggle_favorite(body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    entry_id = body.get("entry_id", "")
+    if not entry_id:
+        raise HTTPException(status_code=400, detail="entry_id is required")
+    try:
+        return favorites.toggle_favorite(conn, entry_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.delete("/api/favorites/{entry_id}")
+def delete_favorite(entry_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    if not favorites.delete_favorite(conn, entry_id):
+        raise HTTPException(status_code=404, detail="favorite not found")
+    return {"deleted": entry_id}
+
+
+@app.delete("/api/favorites")
+def clear_favorites(conn: sqlite3.Connection = Depends(get_conn)):
+    return {"deleted": favorites.clear_favorites(conn)}
+
+
+@app.post("/api/favorites/compose")
+def compose_favorites(body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    entry_ids = body.get("entry_ids")
+    if not isinstance(entry_ids, list):
+        raise HTTPException(status_code=400, detail="entry_ids must be a list")
+    try:
+        return favorites.compose_favorites(conn, entry_ids, body.get("format", "moss"))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.get("/api/relay")

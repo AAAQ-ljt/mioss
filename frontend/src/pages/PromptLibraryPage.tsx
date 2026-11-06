@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api, type CodexEntry } from "../api";
 import { copyText } from "../utils/clipboard";
@@ -22,6 +22,7 @@ function categoryPathLabel(entry: CodexEntry): string {
 }
 
 export default function PromptLibraryPage() {
+  const queryClient = useQueryClient();
   const [domain, setDomain] = useState<Domain>("nsfw");
   const [query, setQuery] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -36,6 +37,25 @@ export default function PromptLibraryPage() {
   const categoriesQuery = useQuery({
     queryKey: ["library-categories", domain],
     queryFn: () => api<Category[]>(`/api/library/categories?domain=${domain}`),
+  });
+
+  const favoriteIdsQuery = useQuery({
+    queryKey: ["favorite-ids"],
+    queryFn: () => api<string[]>("/api/favorites/ids"),
+  });
+
+  const favoriteSet = new Set(favoriteIdsQuery.data || []);
+
+  const toggleFavorite = useMutation({
+    mutationFn: (entryId: string) =>
+      api<{ favorited: boolean }>("/api/favorites/toggle", {
+        method: "POST",
+        body: JSON.stringify({ entry_id: entryId }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["favorite-ids"] });
+      queryClient.invalidateQueries({ queryKey: ["favorites"] });
+    },
   });
 
   const searchQuery = useQuery({
@@ -160,12 +180,30 @@ export default function PromptLibraryPage() {
                 onKeyDown={(event) => event.key === "Enter" && setSelected(entry)}
               >
                 {entry.image_url && (
-                  <img
-                    src={`/api/codex/entries/${entry.id}/thumbnail`}
-                    alt={entry.title}
-                    className="mb-2 w-full object-cover"
-                    loading="lazy"
-                  />
+                  <div className="relative mb-2">
+                    <img
+                      src={`/api/codex/entries/${entry.id}/thumbnail`}
+                      alt={entry.title}
+                      className="w-full object-cover"
+                      loading="lazy"
+                    />
+                    {domain !== "reference" && (
+                      <button
+                        className={`absolute right-2 top-2 border px-2 py-1 text-lg leading-none ${
+                          favoriteSet.has(entry.id)
+                            ? "border-[#e4572e] bg-[#e4572e] text-white"
+                            : "border-white/40 bg-black/60 text-white/80"
+                        }`}
+                        title={favoriteSet.has(entry.id) ? "取消收藏" : "收藏"}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleFavorite.mutate(entry.id);
+                        }}
+                      >
+                        {favoriteSet.has(entry.id) ? "♥" : "♡"}
+                      </button>
+                    )}
+                  </div>
                 )}
                 <div className="truncate text-sm font-medium">{entry.title}</div>
                 <div className="mono mt-1 line-clamp-2 text-xs opacity-50">{textFor(entry)}</div>
@@ -196,9 +234,21 @@ export default function PromptLibraryPage() {
                   <div className="mono text-xs opacity-50">{selected.id}</div>
                   <div className="mt-1 text-xs opacity-60">{categoryPathLabel(selected)}</div>
                 </div>
-                <button className="border border-white/20 px-2 py-1 text-xs" onClick={() => setSelected(null)}>
-                  关闭
-                </button>
+                <div className="flex gap-1">
+                  {domain !== "reference" && (
+                    <button
+                      className={`border px-2 py-1 text-xs ${
+                        favoriteSet.has(selected.id) ? "border-[#e4572e] text-[#e4572e]" : "border-white/20"
+                      }`}
+                      onClick={() => toggleFavorite.mutate(selected.id)}
+                    >
+                      {favoriteSet.has(selected.id) ? "♥ 已收藏" : "♡ 收藏"}
+                    </button>
+                  )}
+                  <button className="border border-white/20 px-2 py-1 text-xs" onClick={() => setSelected(null)}>
+                    关闭
+                  </button>
+                </div>
               </div>
               {selected.image_url && (
                 <a href={selected.image_url} target="_blank" rel="noreferrer" className="block border border-white/15">

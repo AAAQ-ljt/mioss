@@ -94,6 +94,32 @@ def project_import(payload: dict[str, Any]) -> Any:
     return _request("POST", "/api/projects/import", json=payload)
 
 
+@server.tool(description="列出收藏卡片，可按 regular/nsfw 过滤。")
+def favorite_list(domain: str | None = None) -> Any:
+    params = {"domain": domain} if domain else {}
+    return _request("GET", "/api/favorites", params=params)
+
+
+@server.tool(description="列出收藏的 entry_id。")
+def favorite_ids() -> Any:
+    return _request("GET", "/api/favorites/ids")
+
+
+@server.tool(description="收藏/取消收藏一条法典卡片。")
+def favorite_toggle(entry_id: str) -> Any:
+    return _request("POST", "/api/favorites/toggle", json={"entry_id": entry_id})
+
+
+@server.tool(description="删除收藏卡片。")
+def favorite_delete(entry_id: str) -> Any:
+    return _request("DELETE", f"/api/favorites/{entry_id}")
+
+
+@server.tool(description="组合收藏卡片为提示词。format=nai/moss/sd。")
+def favorite_compose(entry_ids: list[str], format: str = "moss") -> Any:
+    return _request("POST", "/api/favorites/compose", json={"entry_ids": entry_ids, "format": format})
+
+
 @server.tool(description="列出 TAG 中转站内容。")
 def relay_list(limit: int = 200) -> Any:
     return _request("GET", "/api/relay", params={"limit": limit})
