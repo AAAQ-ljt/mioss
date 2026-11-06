@@ -5,6 +5,7 @@ const items = [
   { to: "/relay", label: "TAG 中转站", hint: "组合与整理" },
   { to: "/presets", label: "配方库", hint: "风格 / 角色 / 锁定" },
   { to: "/story", label: "故事整理", hint: "小说 Markdown" },
+  { to: "/gallery", label: "画廊", hint: "插图与漫画成品" },
   { to: "/board", label: "分镜台", hint: "页、角色、出图" },
 ];
 

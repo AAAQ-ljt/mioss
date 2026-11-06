@@ -1,5 +1,6 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import StudioLayout from "./layout/StudioLayout";
+import GalleryPage from "./pages/GalleryPage";
 import PresetsPage from "./pages/PresetsPage";
 import PromptLibraryPage from "./pages/PromptLibraryPage";
 import RelayPage from "./pages/RelayPage";
@@ -15,6 +16,7 @@ export default function App() {
           <Route path="/relay" element={<RelayPage />} />
           <Route path="/presets" element={<PresetsPage />} />
           <Route path="/story" element={<StoryPage />} />
+          <Route path="/gallery" element={<GalleryPage />} />
           <Route path="/board" element={<StoryboardPage />} />
         </Route>
       </Routes>

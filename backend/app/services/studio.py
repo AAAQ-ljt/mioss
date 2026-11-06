@@ -179,6 +179,148 @@ def parse_chapters(markdown: str) -> list[dict[str, Any]]:
     return chapters
 
 
+def parse_scenes(markdown: str) -> list[dict[str, Any]]:
+    chapter_title = ""
+    chapter_index = 0
+    scenes = []
+    buffer: list[str] = []
+
+    def flush() -> None:
+        text = "\n".join(buffer).strip()
+        if not text:
+            return
+        first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
+        title = re.sub(r"^#+\s*", "", first_line)[:40] or f"场景 {len(scenes) + 1}"
+        scenes.append(
+            {
+                "chapter_title": chapter_title,
+                "chapter_index": chapter_index,
+                "order_no": len(scenes) + 1,
+                "title": title,
+                "excerpt": text[:4000],
+                "summary": text[:300],
+            }
+        )
+        buffer.clear()
+
+    for raw_line in markdown.splitlines():
+        line = raw_line.strip()
+        heading = re.match(r"^(#{1,6})\s+(.+)$", line)
+        if heading:
+            flush()
+            chapter_title = heading.group(2).strip()
+            chapter_index += 1
+            continue
+        if line == "---":
+            flush()
+            continue
+        buffer.append(raw_line)
+    flush()
+    return scenes
+
+
+def replace_scenes(conn: sqlite3.Connection, project_id: str, scenes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    conn.execute("DELETE FROM story_scene WHERE project_id = ?", (project_id,))
+    timestamp = _now()
+    for index, scene in enumerate(scenes, start=1):
+        scene_id = scene.get("id") or _id()
+        conn.execute(
+            """
+            INSERT INTO story_scene(
+              id, project_id, chapter_title, chapter_index, order_no, title, excerpt, summary,
+              characters, setting, mood, status, page_id, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                scene_id,
+                project_id,
+                scene.get("chapter_title", ""),
+                int(scene.get("chapter_index", 0)),
+                int(scene.get("order_no", index)),
+                scene.get("title", ""),
+                scene.get("excerpt", ""),
+                scene.get("summary", ""),
+                scene.get("characters", ""),
+                scene.get("setting", ""),
+                scene.get("mood", ""),
+                scene.get("status", "draft"),
+                scene.get("page_id"),
+                scene.get("created_at") or timestamp,
+                timestamp,
+            ),
+        )
+    conn.execute("UPDATE project SET updated_at = datetime('now') WHERE id = ?", (project_id,))
+    conn.commit()
+    return list_scenes(conn, project_id)
+
+
+def list_scenes(conn: sqlite3.Connection, project_id: str) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT * FROM story_scene WHERE project_id = ? ORDER BY order_no",
+        (project_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def update_scene(conn: sqlite3.Connection, scene_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+    allowed = {"title", "summary", "characters", "setting", "mood", "status", "page_id", "order_no"}
+    fields = []
+    params = []
+    for key, value in patch.items():
+        if key in allowed:
+            fields.append(f"{key} = ?")
+            params.append(value)
+    if not fields:
+        return None
+    fields.append("updated_at = datetime('now')")
+    params.append(scene_id)
+    conn.execute(f"UPDATE story_scene SET {', '.join(fields)} WHERE id = ?", params)
+    conn.commit()
+    row = conn.execute("SELECT * FROM story_scene WHERE id = ?", (scene_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def scenes_to_pages(
+    conn: sqlite3.Connection,
+    project_id: str,
+    scene_ids: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    project = conn.execute("SELECT mode FROM project WHERE id = ?", (project_id,)).fetchone()
+    if not project:
+        return []
+    kind = "illustration" if project["mode"] == "illustration" else "comic"
+    scenes = list_scenes(conn, project_id)
+    if scene_ids:
+        scenes = [scene for scene in scenes if scene["id"] in set(scene_ids)]
+
+    from .projects import add_page
+
+    pages = []
+    for scene in scenes:
+        page = None
+        if scene.get("page_id"):
+            page = conn.execute("SELECT * FROM page WHERE id = ?", (scene["page_id"],)).fetchone()
+        if not page:
+            page = add_page(
+                conn,
+                project_id,
+                {
+                    "summary": scene.get("summary") or scene.get("excerpt") or scene.get("title"),
+                    "layout_note": scene.get("setting") or "",
+                    "kind": kind,
+                    "scene_id": scene["id"],
+                    "status": "draft",
+                },
+            )
+            conn.execute(
+                "UPDATE story_scene SET page_id = ?, status = 'page_created', updated_at = datetime('now') WHERE id = ?",
+                (page["id"], scene["id"]),
+            )
+            conn.commit()
+        pages.append(dict(page))
+    return pages
+
+
 def save_story(conn: sqlite3.Connection, project_id: str, title: str, markdown: str) -> dict[str, Any]:
     timestamp = _now()
     conn.execute(

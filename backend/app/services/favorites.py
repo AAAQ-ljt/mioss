@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .codex import get_entry
+from .prompt import DEFAULT_NEGATIVE
 from .sanitize import normalize_tag_list
 
 
@@ -120,7 +121,7 @@ def compose_favorites(conn: sqlite3.Connection, entry_ids: list[str], format_nam
     positive_key = {"nai": "prompt_nai", "moss": "prompt_moss", "sd": "prompt_sd_positive"}[format_name]
     negative_key = "negative_sd" if format_name == "sd" else "negative_nai"
     positives = [row[positive_key] or "" for row in selected]
-    negatives = [row[negative_key] or "" for row in selected]
+    negatives = [DEFAULT_NEGATIVE, *[row[negative_key] or "" for row in selected]]
     normalize = format_name != "nai"
     domains = {row["domain"] for row in selected}
     return {

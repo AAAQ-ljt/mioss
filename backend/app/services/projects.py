@@ -54,15 +54,16 @@ def create_project(
     title: str,
     story: str = "",
     style_preset_id: str = "manga-ink",
+    mode: str = "comic",
 ) -> dict[str, Any]:
     project_id = new_id()
     timestamp = now()
     conn.execute(
         """
-        INSERT INTO project(id, title, story, style_preset_id, gallery_sort, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 'order', ?, ?)
+        INSERT INTO project(id, title, story, style_preset_id, gallery_sort, mode, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'order', ?, ?, ?)
         """,
-        (project_id, title, story, style_preset_id, timestamp, timestamp),
+        (project_id, title, story, style_preset_id, mode, timestamp, timestamp),
     )
     conn.commit()
     project_dir(project_id)
@@ -119,8 +120,8 @@ def replace_pages(conn: sqlite3.Connection, project_id: str, pages: list[dict[st
             """
             INSERT INTO page(
               id, project_id, chapter_id, order_no, summary, layout_note, prompt, negative,
-              seed, status, image_path, refs_json, continuity_json, character_ids_json, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              seed, status, image_path, kind, scene_id, refs_json, continuity_json, character_ids_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 page_id,
@@ -134,6 +135,8 @@ def replace_pages(conn: sqlite3.Connection, project_id: str, pages: list[dict[st
                 page.get("seed"),
                 page.get("status", "draft"),
                 page.get("image_path"),
+                page.get("kind", "comic"),
+                page.get("scene_id"),
                 json.dumps(refs, ensure_ascii=False),
                 json.dumps(page.get("continuity") or {}, ensure_ascii=False),
                 json.dumps(page["character_ids"] if "character_ids" in page else _default_character_ids(conn, project_id), ensure_ascii=False),
@@ -159,8 +162,8 @@ def add_page(conn: sqlite3.Connection, project_id: str, page: dict[str, Any] | N
         """
         INSERT INTO page(
           id, project_id, chapter_id, order_no, summary, layout_note, prompt, negative,
-          seed, status, image_path, refs_json, continuity_json, character_ids_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          seed, status, image_path, kind, scene_id, refs_json, continuity_json, character_ids_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             page_id,
@@ -174,6 +177,8 @@ def add_page(conn: sqlite3.Connection, project_id: str, page: dict[str, Any] | N
             page.get("seed"),
             page.get("status", "draft"),
             page.get("image_path"),
+            page.get("kind", "comic"),
+            page.get("scene_id"),
             json.dumps(refs, ensure_ascii=False),
             json.dumps(page.get("continuity") or {}, ensure_ascii=False),
             json.dumps(page["character_ids"] if "character_ids" in page else _default_character_ids(conn, project_id), ensure_ascii=False),
@@ -217,7 +222,7 @@ def get_page(conn: sqlite3.Connection, page_id: str) -> dict[str, Any] | None:
 
 
 def update_page(conn: sqlite3.Connection, page_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
-    allowed = {"summary", "layout_note", "prompt", "negative", "seed", "status", "image_path", "refs", "continuity", "character_ids"}
+    allowed = {"summary", "layout_note", "prompt", "negative", "seed", "status", "image_path", "refs", "continuity", "character_ids", "kind", "scene_id"}
     fields = []
     params = []
     for key, value in patch.items():
@@ -259,7 +264,7 @@ def list_style_presets(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 
 
 def update_project(conn: sqlite3.Connection, project_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
-    allowed = {"title", "story", "style_preset_id", "gallery_sort"}
+    allowed = {"title", "story", "style_preset_id", "gallery_sort", "mode"}
     fields = []
     params = []
     for key, value in patch.items():
@@ -355,8 +360,8 @@ def duplicate_page(conn: sqlite3.Connection, page_id: str) -> dict[str, Any] | N
         """
         INSERT INTO page(
           id, project_id, chapter_id, order_no, summary, layout_note, prompt, negative,
-          seed, status, image_path, refs_json, continuity_json, character_ids_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          seed, status, image_path, kind, scene_id, refs_json, continuity_json, character_ids_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             new_id_value,
@@ -369,6 +374,8 @@ def duplicate_page(conn: sqlite3.Connection, page_id: str) -> dict[str, Any] | N
             source["negative"],
             source["seed"],
             "draft",
+            None,
+            source.get("kind", "comic"),
             None,
             source["refs_json"],
             source["continuity_json"],
@@ -444,11 +451,16 @@ def import_project(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[st
     return get_project(conn, project["id"])
 
 
-def gallery_list(conn: sqlite3.Connection, project_id: str, sort: str = "order") -> list[dict[str, Any]]:
+def gallery_list(conn: sqlite3.Connection, project_id: str, sort: str = "order", kind: str | None = None) -> list[dict[str, Any]]:
     order_sql = "updated_at DESC" if sort == "time" else "order_no ASC"
+    where = "project_id = ?"
+    params: list[Any] = [project_id]
+    if kind:
+        where += " AND kind = ?"
+        params.append(kind)
     rows = conn.execute(
-        f"SELECT id, order_no, summary, prompt, negative, seed, status, image_path, updated_at FROM page WHERE project_id = ? ORDER BY {order_sql}",
-        (project_id,),
+        f"SELECT id, order_no, summary, prompt, negative, seed, status, image_path, kind, scene_id, updated_at FROM page WHERE {where} ORDER BY {order_sql}",
+        params,
     ).fetchall()
     items = []
     for row in rows:

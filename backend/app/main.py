@@ -143,6 +143,7 @@ def create_project(body: dict[str, Any], conn: sqlite3.Connection = Depends(get_
         title=body.get("title", "未命名漫画"),
         story=body.get("story", ""),
         style_preset_id=body.get("style_preset_id", "manga-ink"),
+        mode=body.get("mode", "comic"),
     )
 
 
@@ -283,8 +284,8 @@ def delete_page(page_id: str, conn: sqlite3.Connection = Depends(get_conn)):
 
 
 @app.get("/api/projects/{project_id}/gallery")
-def gallery(project_id: str, sort: str = "order", conn: sqlite3.Connection = Depends(get_conn)):
-    return projects.gallery_list(conn, project_id, sort=sort)
+def gallery(project_id: str, sort: str = "order", kind: str | None = None, conn: sqlite3.Connection = Depends(get_conn)):
+    return projects.gallery_list(conn, project_id, sort=sort, kind=kind)
 
 
 @app.post("/api/pages/{page_id}/generate")
@@ -458,6 +459,41 @@ def save_story(project_id: str, body: dict[str, Any], conn: sqlite3.Connection =
         title=body.get("title", ""),
         markdown=body.get("markdown", ""),
     )
+
+
+@app.post("/api/projects/{project_id}/story/parse")
+def parse_story(project_id: str, body: dict[str, Any] | None = None, conn: sqlite3.Connection = Depends(get_conn)):
+    if not projects.get_project(conn, project_id):
+        raise HTTPException(status_code=404, detail="project not found")
+    body = body or {}
+    markdown = body.get("markdown")
+    if markdown is None:
+        markdown = studio.get_story(conn, project_id)["markdown"]
+    return {"scenes": studio.replace_scenes(conn, project_id, studio.parse_scenes(markdown))}
+
+
+@app.get("/api/projects/{project_id}/scenes")
+def list_scenes(project_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    return studio.list_scenes(conn, project_id)
+
+
+@app.patch("/api/scenes/{scene_id}")
+def update_scene(scene_id: str, body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    scene = studio.update_scene(conn, scene_id, body)
+    if not scene:
+        raise HTTPException(status_code=404, detail="scene not found")
+    return scene
+
+
+@app.post("/api/projects/{project_id}/scenes/generate")
+def generate_scenes(project_id: str, body: dict[str, Any] | None = None, conn: sqlite3.Connection = Depends(get_conn)):
+    if not projects.get_project(conn, project_id):
+        raise HTTPException(status_code=404, detail="project not found")
+    body = body or {}
+    pages = studio.scenes_to_pages(conn, project_id, body.get("scene_ids"))
+    if pages:
+        jobs.generate_pages([page["id"] for page in pages], seed=body.get("seed"), profile=body.get("profile"))
+    return {"pages": pages, "status": "started" if pages else "empty"}
 
 
 if FRONTEND_DIST.exists():

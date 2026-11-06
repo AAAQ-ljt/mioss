@@ -53,6 +53,7 @@ def test_compose_favorites_dedupes_and_marks_mixed(tmp_path):
     assert result["mixed"] is True
     assert "forest" in result["positive"]
     assert "1girl" in result["positive"]
+    assert "worst quality" in result["negative"]
     assert result["missing"] == []
     missing = favorites.compose_favorites(conn, ["missing"], "moss")
     assert missing["missing"] == ["missing"]

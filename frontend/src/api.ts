@@ -30,7 +30,25 @@ export type Page = {
   status: string;
   image_path: string | null;
   image_url: string | null;
+  kind?: "comic" | "illustration";
+  scene_id?: string | null;
   updated_at: string;
+};
+
+export type StoryScene = {
+  id: string;
+  project_id: string;
+  chapter_title: string;
+  chapter_index: number;
+  order_no: number;
+  title: string;
+  excerpt: string;
+  summary: string;
+  characters: string;
+  setting: string;
+  mood: string;
+  status: string;
+  page_id: string | null;
 };
 
 export type Project = {
@@ -38,6 +56,7 @@ export type Project = {
   title: string;
   story: string;
   style_preset_id: string;
+  mode?: "illustration" | "comic";
   thumbnail_url?: string | null;
   pages?: Page[];
   page_count?: number;

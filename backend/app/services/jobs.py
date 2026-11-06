@@ -224,6 +224,20 @@ def _generate_project(project_id: str, seed: int | None, profile: dict[str, Any]
             continue
 
 
+def _generate_pages(page_ids: list[str], seed: int | None, profile: dict[str, Any] | None) -> None:
+    for page_id in page_ids:
+        job_id = submit_page(page_id, seed=seed, profile=profile)
+        try:
+            wait_for_job(job_id)
+        except TimeoutError:
+            continue
+
+
+def generate_pages(page_ids: list[str], seed: int | None = None, profile: dict[str, Any] | None = None) -> dict[str, Any]:
+    threading.Thread(target=_generate_pages, args=(page_ids, seed, profile), daemon=True).start()
+    return {"page_ids": page_ids, "status": "started"}
+
+
 def generate_project(project_id: str, seed: int | None = None, profile: dict[str, Any] | None = None) -> dict[str, Any]:
     threading.Thread(target=_generate_project, args=(project_id, seed, profile), daemon=True).start()
     return {"project_id": project_id, "status": "started"}

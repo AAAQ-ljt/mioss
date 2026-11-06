@@ -54,9 +54,9 @@ def codex_get(entry_id: str) -> Any:
     return _request("GET", f"/api/codex/entries/{entry_id}")
 
 
-@server.tool(description="创建漫画项目。默认风格为 manga-ink，适合黑白网点漫画页。")
-def project_create(title: str, story: str = "", style_preset_id: str = "manga-ink") -> Any:
-    return _request("POST", "/api/projects", json={"title": title, "story": story, "style_preset_id": style_preset_id})
+@server.tool(description="创建项目。mode=illustration 为小说配图，mode=comic 为改编漫画。默认风格 manga-ink。")
+def project_create(title: str, story: str = "", style_preset_id: str = "manga-ink", mode: str = "comic") -> Any:
+    return _request("POST", "/api/projects", json={"title": title, "story": story, "style_preset_id": style_preset_id, "mode": mode})
 
 
 @server.tool(description="列出项目。")
@@ -180,6 +180,26 @@ def story_save(project_id: str, title: str, markdown: str) -> Any:
     return _request("PUT", f"/api/projects/{project_id}/story", json={"title": title, "markdown": markdown})
 
 
+@server.tool(description="按标题和 --- 切分项目 Markdown 为场景。")
+def story_parse(project_id: str, markdown: str | None = None) -> Any:
+    return _request("POST", f"/api/projects/{project_id}/story/parse", json={"markdown": markdown})
+
+
+@server.tool(description="列出项目场景。")
+def scene_list(project_id: str) -> Any:
+    return _request("GET", f"/api/projects/{project_id}/scenes")
+
+
+@server.tool(description="更新场景摘要/人物/地点/情绪。")
+def scene_update(scene_id: str, patch: dict[str, Any]) -> Any:
+    return _request("PATCH", f"/api/scenes/{scene_id}", json=patch)
+
+
+@server.tool(description="把选中场景生成插图/分镜页并排队。scene_ids 为空表示全部。")
+def scenes_generate(project_id: str, scene_ids: list[str] | None = None, seed: int | None = None, profile: dict[str, Any] | None = None) -> Any:
+    return _request("POST", f"/api/projects/{project_id}/scenes/generate", json={"scene_ids": scene_ids, "seed": seed, "profile": profile})
+
+
 @server.tool(description="保存项目故事文本。")
 def story_set(project_id: str, story: str) -> Any:
     return _request("POST", f"/api/projects/{project_id}/story", json={"story": story})
@@ -215,9 +235,12 @@ def project_reorder(project_id: str, page_ids: list[str]) -> Any:
     return _request("POST", f"/api/projects/{project_id}/reorder", json={"page_ids": page_ids})
 
 
-@server.tool(description="获取项目画廊。sort=order 或 time。")
-def gallery_list(project_id: str, sort: str = "order") -> Any:
-    return _request("GET", f"/api/projects/{project_id}/gallery", params={"sort": sort})
+@server.tool(description="获取项目画廊。sort=order/time，kind=comic/illustration。")
+def gallery_list(project_id: str, sort: str = "order", kind: str | None = None) -> Any:
+    params = {"sort": sort}
+    if kind:
+        params["kind"] = kind
+    return _request("GET", f"/api/projects/{project_id}/gallery", params=params)
 
 
 @server.tool(description="列出项目角色圣经。")

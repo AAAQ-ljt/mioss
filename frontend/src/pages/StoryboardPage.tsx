@@ -33,8 +33,6 @@ export default function StoryboardPage() {
   const [query, setQuery] = useState("森林");
   const [libraryDomain, setLibraryDomain] = useState<"regular" | "nsfw" | "reference">("regular");
   const [categoryFilter, setCategoryFilter] = useState("");
-  const [gallerySort, setGallerySort] = useState<"order" | "time">("order");
-  const [galleryOpen, setGalleryOpen] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
   const [lastCompose, setLastCompose] = useState<ComposeResult | null>(null);
@@ -135,13 +133,6 @@ export default function StoryboardPage() {
   const project = projectQuery.data;
   const pages = project?.pages || [];
   const selectedPage = pages.find((page) => page.id === selectedPageId) || pages[0] || null;
-  const galleryPages = [...pages]
-    .filter((page) => page.image_url)
-    .sort((a, b) =>
-      gallerySort === "time"
-        ? (b.updated_at || "").localeCompare(a.updated_at || "")
-        : a.order_no - b.order_no,
-    );
 
   useEffect(() => {
     if (selectedPage) setSelectedPageId(selectedPage.id);
@@ -369,15 +360,6 @@ export default function StoryboardPage() {
     return () => window.removeEventListener("moss-error", onError);
   }, []);
 
-  useEffect(() => {
-    if (!galleryOpen) return;
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setGalleryOpen(false);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [galleryOpen]);
-
   async function exportCurrentProject() {
     if (!selectedProjectId) return;
     const payload = await api<unknown>(`/api/projects/${selectedProjectId}/export`);
@@ -425,12 +407,9 @@ export default function StoryboardPage() {
       <header className="panel halftone mx-3 mt-3 flex items-center justify-between px-4 py-3">
         <div>
           <h1 className="text-xl font-semibold">分镜台</h1>
-          <p className="text-sm opacity-70">项目 → 角色 → 页 → 提示词 → 出图 → 画廊</p>
+          <p className="text-sm opacity-70">项目 → 角色 → 页 → 提示词 → 出图</p>
         </div>
         <div className="mono text-sm">
-          <button className="mr-3 border border-white/20 px-3 py-1 text-sm disabled:opacity-40" onClick={() => setGalleryOpen(true)} disabled={!selectedProjectId}>
-            打开画廊
-          </button>
           <span className={healthQuery.data?.comfy.ok ? "text-emerald-300" : "accent"}>
             ComfyUI {healthQuery.data?.comfy.ok ? "在线" : "离线"}
           </span>
@@ -475,7 +454,7 @@ export default function StoryboardPage() {
           </div>
 
           <div className="mb-3 max-h-40 overflow-auto">
-            {projectsQuery.data?.map((item) => (
+            {projectsQuery.data?.filter((item) => (item.mode || "comic") === "comic").map((item) => (
               <button
                 key={item.id}
                 className={`mb-1 flex w-full items-center gap-2 px-2 py-1 text-left ${selectedProjectId === item.id ? "bg-white/10" : "hover:bg-white/5"}`}
@@ -606,32 +585,6 @@ export default function StoryboardPage() {
                   </button>
                 </div>
               </div>
-            ))}
-          </div>
-
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-sm opacity-70">画廊</span>
-            <div className="flex gap-1 text-xs">
-              <button
-                className={`border px-2 py-1 ${gallerySort === "order" ? "border-[#e4572e] text-[#e4572e]" : "border-white/20"}`}
-                onClick={() => setGallerySort("order")}
-              >
-                内容
-              </button>
-              <button
-                className={`border px-2 py-1 ${gallerySort === "time" ? "border-[#e4572e] text-[#e4572e]" : "border-white/20"}`}
-                onClick={() => setGallerySort("time")}
-              >
-                时间
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            {galleryPages.map((page) => (
-              <a key={page.id} href={page.image_url || "#"} target="_blank" className="block border border-white/15">
-                <img src={page.image_url || undefined} alt={`第 ${page.order_no} 页`} className="aspect-[9/16] w-full object-cover" />
-              </a>
             ))}
           </div>
         </section>
@@ -964,44 +917,6 @@ export default function StoryboardPage() {
           {!jobsQuery.data?.length && <div className="opacity-40">暂无任务</div>}
         </div>
       </footer>
-
-      {galleryOpen && (
-        <div className="fixed inset-0 z-50 bg-black/85 p-6">
-          <div className="mx-auto flex h-full max-w-7xl flex-col">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">画廊</h2>
-              <div className="flex gap-2">
-                <button
-                  className={`border px-3 py-1 text-sm ${gallerySort === "order" ? "border-[#e4572e] text-[#e4572e]" : "border-white/20"}`}
-                  onClick={() => setGallerySort("order")}
-                >
-                  内容
-                </button>
-                <button
-                  className={`border px-3 py-1 text-sm ${gallerySort === "time" ? "border-[#e4572e] text-[#e4572e]" : "border-white/20"}`}
-                  onClick={() => setGallerySort("time")}
-                >
-                  时间
-                </button>
-                <button className="border border-white/20 px-3 py-1 text-sm" onClick={() => setGalleryOpen(false)}>
-                  关闭
-                </button>
-              </div>
-            </div>
-            <div className="min-h-0 flex-1 overflow-auto">
-              <div className="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-6">
-                {galleryPages.map((page) => (
-                  <a key={page.id} href={page.image_url || "#"} target="_blank" className="block border border-white/15">
-                    <img src={page.image_url || undefined} alt={`第 ${page.order_no} 页`} className="aspect-[9/16] w-full object-cover" />
-                    <div className="mono p-2 text-xs opacity-70">第 {page.order_no} 页</div>
-                  </a>
-                ))}
-                {!galleryPages.length && <div className="opacity-40">暂无已生成页面</div>}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {errorNotice && (
         <div className="fixed bottom-4 right-4 max-w-sm border border-[#e4572e] bg-black/85 p-3 text-sm text-[#ffb4a0]">
