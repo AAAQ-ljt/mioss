@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   api,
@@ -134,10 +134,10 @@ export default function StoryboardPage() {
     refetchInterval: 3000,
   });
 
-  const projects = projectsQuery.data || [];
-  const tasks = tasksQuery.data || [];
+  const projects = useMemo(() => projectsQuery.data || [], [projectsQuery.data]);
+  const tasks = useMemo(() => tasksQuery.data || [], [tasksQuery.data]);
   const task = taskQuery.data;
-  const pages = task?.pages || [];
+  const pages = useMemo(() => task?.pages || [], [task?.pages]);
   const selectedPage = pages.find((page) => page.id === pageId) || pages[0] || null;
   const selectedPageLive = selectedPage;
 
@@ -166,7 +166,10 @@ export default function StoryboardPage() {
   }, [selectedPage?.id, pageId]);
 
   useEffect(() => {
-    setSelectedPages((current) => current.filter((id) => pages.some((page) => page.id === id)));
+    setSelectedPages((current) => {
+      const next = current.filter((id) => pages.some((page) => page.id === id));
+      return next.length === current.length ? current : next;
+    });
   }, [pages]);
 
   useEffect(() => {

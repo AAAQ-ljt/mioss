@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { api, type GalleryItem, type Project } from "../api";
 
 type ViewSize = "large" | "medium" | "small";
@@ -42,7 +42,8 @@ export default function GalleryPage() {
     queryFn: () => api<Project[]>("/api/projects"),
   });
 
-  const filtered = (projectsQuery.data || []).filter((project) => (project.mode || "comic") === mode);
+  const projects = useMemo(() => projectsQuery.data || [], [projectsQuery.data]);
+  const filtered = useMemo(() => projects.filter((project) => (project.mode || "comic") === mode), [projects, mode]);
 
   useEffect(() => {
     if (!filtered.length) {
@@ -60,7 +61,7 @@ export default function GalleryPage() {
     enabled: !!projectId,
   });
 
-  const items = galleryQuery.data || [];
+  const items = useMemo(() => galleryQuery.data || [], [galleryQuery.data]);
   const project = projectsQuery.data?.find((item) => item.id === projectId);
   const lightboxItem = lightbox !== null ? items[lightbox] : null;
 
