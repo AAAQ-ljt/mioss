@@ -31,7 +31,7 @@ export default function StoryboardPage() {
   const [characterAnchor, setCharacterAnchor] = useState("1girl, silver hair, amber eyes, apprentice mage, cloak");
   const [draft, setDraft] = useState<Page | null>(null);
   const [query, setQuery] = useState("森林");
-  const [libraryDomain, setLibraryDomain] = useState<"regular" | "nsfw" | "reference">("nsfw");
+  const [libraryDomain, setLibraryDomain] = useState<"regular" | "nsfw" | "reference">("regular");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [gallerySort, setGallerySort] = useState<"order" | "time">("order");
   const [galleryOpen, setGalleryOpen] = useState(false);

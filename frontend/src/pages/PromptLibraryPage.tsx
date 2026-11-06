@@ -23,7 +23,7 @@ function categoryPathLabel(entry: CodexEntry): string {
 
 export default function PromptLibraryPage() {
   const queryClient = useQueryClient();
-  const [domain, setDomain] = useState<Domain>("nsfw");
+  const [domain, setDomain] = useState<Domain>("regular");
   const [query, setQuery] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [format, setFormat] = useState<Format>("moss");
