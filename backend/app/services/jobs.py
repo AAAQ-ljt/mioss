@@ -110,6 +110,8 @@ def list_page_variants(conn: sqlite3.Connection, page_id: str) -> list[dict[str,
     variants = []
     for row in rows:
         item = dict(row)
+        if not Path(item["output_path"]).is_file():
+            continue
         item["image_url"] = _image_url(item.get("output_path"))
         variants.append(item)
     return variants

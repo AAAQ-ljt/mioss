@@ -290,12 +290,9 @@ def project_reorder(project_id: str, page_ids: list[str]) -> Any:
     return _request("POST", f"/api/projects/{project_id}/reorder", json={"page_ids": page_ids})
 
 
-@server.tool(description="获取项目画廊。sort=order/time，kind=comic/illustration。")
-def gallery_list(project_id: str, sort: str = "order", kind: str | None = None) -> Any:
-    params = {"sort": sort}
-    if kind:
-        params["kind"] = kind
-    return _request("GET", f"/api/projects/{project_id}/gallery", params=params)
+@server.tool(description="获取项目画廊图片文件。sort=order 按页序，time 按文件时间。")
+def gallery_list(project_id: str, sort: str = "order") -> Any:
+    return _request("GET", f"/api/projects/{project_id}/gallery", params={"sort": sort})
 
 
 @server.tool(description="列出项目角色圣经。")

@@ -466,20 +466,3 @@ def import_project(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[st
     return get_project(conn, project["id"])
 
 
-def gallery_list(conn: sqlite3.Connection, project_id: str, sort: str = "order", kind: str | None = None) -> list[dict[str, Any]]:
-    order_sql = "updated_at DESC" if sort == "time" else "order_no ASC"
-    where = "project_id = ?"
-    params: list[Any] = [project_id]
-    if kind:
-        where += " AND kind = ?"
-        params.append(kind)
-    rows = conn.execute(
-        f"SELECT id, order_no, summary, prompt, negative, seed, status, image_path, kind, scene_id, updated_at FROM page WHERE {where} ORDER BY {order_sql}",
-        params,
-    ).fetchall()
-    items = []
-    for row in rows:
-        item = dict(row)
-        item["image_url"] = _image_url(item.get("image_path"))
-        items.append(item)
-    return items

@@ -35,6 +35,20 @@ export type Page = {
   updated_at: string;
 };
 
+export type GalleryItem = {
+  path: string;
+  name: string;
+  url: string;
+  size: number;
+  mtime: string;
+  page_id: string | null;
+  order_no: number | null;
+  summary: string;
+  status: string | null;
+  kind: string | null;
+  scene_id: string | null;
+};
+
 export type StoryScene = {
   id: string;
   project_id: string;

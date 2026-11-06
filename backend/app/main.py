@@ -11,7 +11,7 @@ import sqlite3
 
 from .config import ensure_dirs, FRONTEND_DIST, PROJECTS_DIR
 from .db import connect, migrate
-from .services import codex, comfy, favorites, jobs, projects, prompt, studio, thumbs
+from .services import codex, comfy, favorites, gallery, jobs, projects, prompt, studio, thumbs
 
 
 @asynccontextmanager
@@ -292,8 +292,33 @@ def delete_page(page_id: str, conn: sqlite3.Connection = Depends(get_conn)):
 
 
 @app.get("/api/projects/{project_id}/gallery")
-def gallery(project_id: str, sort: str = "order", kind: str | None = None, conn: sqlite3.Connection = Depends(get_conn)):
-    return projects.gallery_list(conn, project_id, sort=sort, kind=kind)
+def list_gallery(project_id: str, sort: str = "order", conn: sqlite3.Connection = Depends(get_conn)):
+    items = gallery.list_gallery(conn, project_id, sort=sort)
+    if items is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return items
+
+
+@app.post("/api/projects/{project_id}/gallery/batch_delete")
+def delete_gallery_images(project_id: str, body: dict[str, Any], conn: sqlite3.Connection = Depends(get_conn)):
+    paths = body.get("paths")
+    if not isinstance(paths, list):
+        raise HTTPException(status_code=400, detail="paths must be a list")
+    deleted = gallery.delete_images(conn, project_id, paths)
+    return {"deleted": deleted, "count": len(deleted)}
+
+
+@app.get("/api/projects/{project_id}/gallery/download")
+def download_gallery_image(
+    project_id: str,
+    path: str = Query(...),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    info = gallery.download_info(conn, project_id, path)
+    if info is None:
+        raise HTTPException(status_code=404, detail="image not found")
+    target, filename = info
+    return FileResponse(target, filename=filename)
 
 
 @app.post("/api/pages/{page_id}/generate")

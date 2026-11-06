@@ -78,7 +78,7 @@ def test_project_storyboard_gallery(tmp_path):
     ])
     assert len(pages) == 2
     assert pages[0]["refs"] == ["suozhang-1"]
-    assert projects.gallery_list(conn, project["id"], "order")[0]["order_no"] == 1
+    assert [page["order_no"] for page in projects.list_pages(conn, project["id"])] == [1, 2]
 
     added = projects.add_page(conn, project["id"], {"summary": "追加页", "refs": ["suozhang-1"]})
     assert added["order_no"] == 3
@@ -164,6 +164,7 @@ def test_page_variants_lists_succeeded_jobs(tmp_path):
     from backend.app.config import PROJECTS_DIR
     from backend.app.services.jobs import list_page_variants
 
+    (PROJECTS_DIR / "test-out.png").write_bytes(b"x")
     conn.execute(
         """
         INSERT INTO generation_job(id, page_id, prompt, negative, seed, workflow_profile, status, output_path, started_at)

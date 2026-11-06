@@ -14,14 +14,14 @@
   → 每页从法典选普通 tag
   → 清洗 / 拼接 / 去重
   → ComfyUI(MOSS) 出一张整页图
-  → 按项目归档到画廊（按时间或内容排序浏览）
+  → 按项目归档到画廊（按页序或文件时间排序浏览）
 ```
 
 明确不做：
 
 - 不在应用内内置 LLM，不保存 API Key；AI 只通过 MCP 调用本项目。
 - 第一版不做逐格生成；一页一张，页是生成单位。
-- 不做复杂排版/导出；一个项目一个文件夹，画廊只做排序浏览。
+- 不做复杂排版/导出；一个项目一个 `images/` 文件夹，画廊直接扫描文件浏览、删除、下载。
 - 不依赖 `NovelAI-Tag-local-v1.5.0/` 的运行时代码或服务；旧目录只读参考，保持原样。
 - 不在运行时抓 quicktagcloud；先同步到本地 SQLite，再由 MCP / UI 查询。
 
@@ -34,8 +34,8 @@
 | 出图单位 | 一页一张；页级分镜，后续归档到画廊 |
 | 词库范围 | 全部法典分批导入；分类与网站一致；按 release 增量更新 |
 | 提示词 | tag-first；清洗 NAI 语法；不做强制翻译 |
-| 画廊 | 一个项目（漫画）一个文件夹；生成图按时间或内容排序浏览；不做复杂排版/导出 |
-| 页面结构 | 5 个路由：/ 检索、/relay 中转站、/presets 预设、/story 故事、/board 分镜台；深色漫画编辑部后台布局 |
+| 画廊 | 一个项目一个 `images/` 文件夹；直接扫描图片文件；页序/文件时间排序；大中小图标；批量删除、右键下载、灯箱翻页 |
+| 页面结构 | 6 个路由：/ 检索、/relay 中转站、/presets 预设、/story 故事、/gallery 画廊、/board 分镜台；深色漫画编辑部后台布局 |
 | SD 权重 | `{}` 每层 ×1.05，`[]` 每层 ×0.95，数字权重精确转 `(tag:权重)`；负权重进负面提示词 |
 | 中转站 | 首页复制即入中转站；可组合、删除、清空、再复制 |
 | 故事 | 一个项目一个文件夹；每章一个独立 Markdown 文件；编辑器按章节切换并自动保存 |
@@ -154,7 +154,7 @@ hyulla（画师）, artist:ahemaru（画师）
 - `generation_job(id, page_id, prompt, negative, seed, workflow_profile, comfy_prompt_id, status, output_path, error, started_at, finished_at)`
 - `setting(key, value)`
 
-`gallery_sort` 取 `order`（内容/页序，默认）或 `time`（生成时间）。
+画廊排序 `order` = 按页序（第 1 页在前，默认），`time` = 按图片文件修改时间（最新在前）。画廊条目来自 `projects/<id>/images/` 的实际文件，DB 页面仅用于补充页号/摘要；删除图片会移到 `projects/_trash_images/` 并把对应页面图片链接清空、状态退回 `draft`，页面记录保留。
 
 分类体系：
 - `entry.domain` 取 `regular` / `nsfw` / `reference`；`reference` 只放画师词典，不参与 MOSS 选词。
@@ -179,7 +179,7 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - `storyboard_save(project_id, pages_json)`：校验 schema，拒绝不存在的 entry_id。
 - `page_list(project_id)` / `page_get(page_id)` / `page_update(page_id, patch)` / `page_duplicate(page_id)` / `page_delete(page_id)`
 - `project_reorder(project_id, page_ids)`
-- `gallery_list(project_id, sort="order"|"time")` → 画廊图片列表
+- `gallery_list(project_id, sort="order"|"time")` → 项目 `images/` 文件列表（path/url/page_id/order_no）
 - `character_list(project_id)` / `character_upsert(project_id, body)`
 - `prompt_compose(page_id, entry_ids, style_preset_id?, mode="plain", include_nsfw=false)` → 正向 / 负向 / 丢弃明细
 - `generate_page(page_id, seed?, profile?)` → `job_id`
@@ -218,7 +218,7 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - 首页检索：分类树、图片瀑布流、右侧详情；复制支持 NAI / MOSS / SD 权重三种格式，复制即入中转站。检索默认全库，不按来源法典筛选。
 - 中转站：左栏常规收藏、右栏 NSFW 收藏，跨栏多选，底部组合条统一组合/复制；收藏为快照，不依赖复制。
 - 页面详情必须展示：最终正向、负向、选中的法典条目、被过滤的 tag 及原因、seed、状态。
-- 关键交互：法典拖拽入栈、锁风格/角色、同 seed 重跑、A/B 对比、画廊按时间/内容切换、页序上下移动、删除页、点图查看。
+- 关键交互：法典拖拽入栈、锁风格/角色、同 seed 重跑、A/B 对比、画廊页序/时间切换与大中小图标、批量选择删除、右键下载删除、灯箱左右翻页、页序上下移动、删除页。
 
 ## 10. 里程碑
 
@@ -242,7 +242,7 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 10. 用户可见文案用中文；法典 tag 保留英文；文件 UTF-8；Windows 路径用 `F:\...`，脚本兼容 Git Bash。
 11. 数据仅本地个人使用；R18 默认隐藏；不把法典数据/图片用于再分发。
 12. 所有 entry_id、模型名、节点名必须来自真实数据/工作流；禁止编造。
-13. 生成图按项目归档：一个项目一个文件夹，不把不同漫画的图混在一起；画廊默认按内容/页序排序，可切换时间。
+13. 生成图按项目归档：一个项目一个文件夹，不把不同漫画的图混在一起；画廊默认按页序，可切换文件时间；删除图片进回收目录，不直接丢失。
 
 ## 12. 当前状态与待定
 
@@ -272,9 +272,11 @@ MCP 服务是薄层，调用本地 FastAPI；不直接碰 SQLite 以外的业务
 - M4 章节文件化：章节正文存 `projects/<project_id>/chapters/chapter-<id>.md`，DB 只存元数据；编辑器按章节切换渲染，800ms 防抖自动保存，切章/切作品/离开页面前强制落盘，不再有保存按钮。
 - M4 场景批量操作：故事页右侧提供全选、批量删除、跳转；跳转前自动为选中场景建页并带 `scene` 参数打开分镜台；已移除场景顶部“生成选中/自动全部”，批量出图统一在分镜台完成。
 - M4 删除安全：删除项目时整目录移入 `projects/_trash/<id>-<时间>`，不再留孤儿图片与章节文件。
+- M4 画廊文件化：画廊直接扫描 `projects/<id>/images/`，支持页序/文件时间排序、大中小图标（默认中，localStorage 记忆）、批量选择删除、右键删除/下载、灯箱放大与左右/键盘翻页；删除图片移入 `projects/_trash_images/`，对应页面图片链接清空并回到 `draft`。
 - 当前数据已清空：项目 0、故事 0、分镜页 0、配方 0、收藏 0；测试图在 `data/_trash_projects_*`，数据库备份在 `data/backups/`。
 - 当前数据再次清空（故事工作台验收后）：项目 0、场景 0、页 0、配方 0、收藏 0；备份 `moss-20261106-173550.db`，测试图在最新 `data/_trash_projects_*`。
 - 2026-11-06 章节文件重构验收：49 个后端测试通过；浏览器验证章节新增/切换/800ms 自动保存/切章落盘、项目新建切换、场景全选/批量删除/跳转、作品批量删除；验证项目已删除并移入 `projects/_trash/`，当前仅保留用户 `demo` 项目；备份 `moss-20261106-175635.db`。`projects/` 下仍有早期无 DB 记录的历史测试文件夹，未清理。
+- 2026-11-06 画廊重构验收：清理 demo 内切分测试残留（章节 12/42、scian 失败页、旧 story_doc 文本），备份 `moss-20261106-180434.db`；51 个后端测试通过；浏览器验证 5 张真实 PNG 的页序/时间排序、大中小图标、灯箱左右/键盘翻页、右键删除、批量全选删除、下载响应头；临时项目与测试图已清理，当前仅保留 `demo`。
 - 法典抓取已验证；`data/raw/` 和 `_scrape/` 有原始 JSON；数据库在 `data/moss.db`。
 - 本机可跑工作流为 14 节点单次 MOSS；ComfyUI 烟测成功，848×1488、seed 12345、约 90 秒出图。
 - 当前默认 profile 出图偏彩色电影感动漫；同 seed 校准显示 `manga-ink` 风格块能出多格黑白漫画页，自然语言也能出高质量单页。漫画项目默认应切到 `manga-ink`，封面/插画可保留 `cinematic-anime`。
